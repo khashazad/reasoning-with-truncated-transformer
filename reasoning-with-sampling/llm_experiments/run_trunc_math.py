@@ -66,9 +66,9 @@ if __name__ == "__main__":
         print(f"Truncating model layers to first {layer_idx + 1} layers...")
         # Works for Qwen/Llama style models where layers are in model.model.layers or model.layers
         if hasattr(hf_model, "model") and hasattr(hf_model.model, "layers"):
-            hf_model.model.layers = hf_model.model.layers[:layer_idx + 1]
+            hf_model.model.layers = torch.nn.ModuleList(hf_model.model.layers[:layer_idx + 1])
         elif hasattr(hf_model, "layers"):
-             hf_model.layers = hf_model.layers[:layer_idx + 1]
+             hf_model.layers = torch.nn.ModuleList(hf_model.layers[:layer_idx + 1])
         else:
             print("Warning: Could not find layer list to truncate. Running full model.")
             

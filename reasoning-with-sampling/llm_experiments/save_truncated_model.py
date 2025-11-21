@@ -19,9 +19,9 @@ def save_truncated_model(model_str, layer_idx, output_path, device="cuda"):
         print(f"Truncating model to first {layer_idx + 1} layers...")
         
         if hasattr(model, "model") and hasattr(model.model, "layers"):
-            model.model.layers = model.model.layers[:layer_idx + 1]
+            model.model.layers = torch.nn.ModuleList(model.model.layers[:layer_idx + 1])
         elif hasattr(model, "layers"):
-             model.layers = model.layers[:layer_idx + 1]
+             model.layers = torch.nn.ModuleList(model.layers[:layer_idx + 1])
         else:
             print("Warning: Could not find layer list to truncate.")
             return

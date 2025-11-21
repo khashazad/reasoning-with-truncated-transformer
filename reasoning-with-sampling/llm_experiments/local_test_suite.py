@@ -50,9 +50,9 @@ def run_interactive_test(model_name="Qwen/Qwen2.5-Math-1.5B", layers=[18], alpha
         # Truncate
         if layer_idx < model.config.num_hidden_layers:
              if hasattr(model, "model") and hasattr(model.model, "layers"):
-                 model.model.layers = model.model.layers[:layer_idx + 1]
+                 model.model.layers = torch.nn.ModuleList(model.model.layers[:layer_idx + 1])
              elif hasattr(model, "layers"):
-                  model.layers = model.layers[:layer_idx + 1]
+                  model.layers = torch.nn.ModuleList(model.layers[:layer_idx + 1])
              model.config.num_hidden_layers = layer_idx + 1
         
         autoreg_sampler = AutoregressiveSampler(model, tokenizer, device)
