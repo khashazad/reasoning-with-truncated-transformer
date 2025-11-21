@@ -9,9 +9,7 @@ import transformers
 
 from grader_utils.parse_utils import parse_answer
 from constants import *
-from power_samp_utils import AutoregressiveSampler, format_prompt
-from ee_utils import EarlyExitHead, patch_model_with_early_exit
-from power_samp_ee import mcmc_power_samp_ee
+from power_samp_utils import AutoregressiveSampler, format_prompt, mcmc_power_samp
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -24,8 +22,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
-    parser.add_argument("--layer_idx", action = "store", type = int, default = 18, help="Exit layer index")
-    # Removed --calibrate argument as we no longer use it
+    parser.add_argument("--layer_idx", action = "store", type = int, default = 18, help="Truncate model to this layer index (0-indexed)")
     
     args = parser.parse_args()
 
@@ -46,7 +43,7 @@ if __name__ == "__main__":
     print(f"Model: {model_str}")
     print(f"Device: {device}")
     print(f"MCMC Steps: {mcmc_steps}")
-    print(f"Early Exit Layer: {layer_idx}")
+    print(f"Truncating at Layer: {layer_idx}")
 
     if dataset_name == "MATH":
         json_file = 'data/MATH500.json'
@@ -62,19 +59,24 @@ if __name__ == "__main__":
     tokenizer = transformers.AutoTokenizer.from_pretrained(model_str, trust_remote_code=True)
     hf_model = transformers.AutoModelForCausalLM.from_pretrained(model_str, torch_dtype="auto", device_map="auto", trust_remote_code=True).to(device)
     
-    print(f"Total Layers: {hf_model.config.num_hidden_layers}")
-    if layer_idx >= hf_model.config.num_hidden_layers:
-        print(f"Warning: layer_idx {layer_idx} is out of bounds. Clamping to {hf_model.config.num_hidden_layers // 2}")
-        layer_idx = hf_model.config.num_hidden_layers // 2
-
-    ee_head = EarlyExitHead(hf_model, layer_idx, device)
+    print(f"Original Total Layers: {hf_model.config.num_hidden_layers}")
     
-    # No calibration logic. Just direct mid-layer usage.
+    # --- TRUNCATE MODEL ---
+    if layer_idx < hf_model.config.num_hidden_layers:
+        print(f"Truncating model layers to first {layer_idx + 1} layers...")
+        # Works for Qwen/Llama style models where layers are in model.model.layers or model.layers
+        if hasattr(hf_model, "model") and hasattr(hf_model.model, "layers"):
+            hf_model.model.layers = hf_model.model.layers[:layer_idx + 1]
+        elif hasattr(hf_model, "layers"):
+             hf_model.layers = hf_model.layers[:layer_idx + 1]
+        else:
+            print("Warning: Could not find layer list to truncate. Running full model.")
+            
+        # Update config to reflect change
+        hf_model.config.num_hidden_layers = layer_idx + 1
+        print(f"New Total Layers: {hf_model.config.num_hidden_layers}")
 
-    # Patch Model
-    patch_model_with_early_exit(hf_model, ee_head)
-    
-    # Autoregressive Sampler
+    # Autoregressive Sampler with Truncated Model
     autoreg_sampler = AutoregressiveSampler(hf_model, tokenizer, device)
 
     results = []
@@ -83,7 +85,7 @@ if __name__ == "__main__":
     end = 100*(args.batch_idx+1)
     end = min(end, len(dataset))
 
-    for i, data in tqdm(enumerate(dataset[start:end]), total=end-start, desc="EE-PS Benchmark"):
+    for i, data in tqdm(enumerate(dataset[start:end]), total=end-start, desc="Truncated-PS Benchmark"):
         question = data["prompt"]
         answer = data["answer"]
 
@@ -91,8 +93,9 @@ if __name__ == "__main__":
         input_ids = tokenizer.encode(input_text, return_tensors="pt").to(device)
         prefx = [idx.item() for idx in input_ids[0]]
 
-        mcmc_out, _, _, accept_ratio = mcmc_power_samp_ee(
-            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=3072, block_num=16, debug=True
+        # Using standard mcmc_power_samp on the truncated model
+        mcmc_out, _, _, accept_ratio = mcmc_power_samp(
+            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=3072, block_num=16
         )
 
         mcmc_completion = tokenizer.decode(torch.tensor(mcmc_out[len(prefx):], dtype=torch.long).cpu(), skip_special_tokens=True)
@@ -110,7 +113,7 @@ if __name__ == "__main__":
             "acceptance_ratio": accept_ratio
         })
 
-    out_file = os.path.join(save_str, f"ee_ps_results_steps{mcmc_steps}_temp{temp}_batch{args.batch_idx}.csv")
+    out_file = os.path.join(save_str, f"truncated_ps_results_layer{layer_idx}_steps{mcmc_steps}_temp{temp}_batch{args.batch_idx}.csv")
     df = pd.DataFrame(results)
     df.to_csv(out_file, index=False)
     print(f"Saved results to {out_file}")

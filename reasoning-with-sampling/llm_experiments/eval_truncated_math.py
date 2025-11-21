@@ -12,7 +12,7 @@ def safe_grade(ans, correct_ans):
     except Exception:
         return 0
 
-def eval_ee_math(fname):
+def eval_truncated_math(fname):
     print(fname)
     df = pd.read_csv(fname)
     mcmc_correct = 0
@@ -23,12 +23,12 @@ def eval_ee_math(fname):
 
     return mcmc_correct, total
 
-def ee_math_results(fnames):
+def truncated_math_results(fnames):
     mcmc_total = 0
     total = 0
 
     for fname in fnames:
-        mcmc, n = eval_ee_math(fname)
+        mcmc, n = eval_truncated_math(fname)
         mcmc_total += mcmc
         total += n
 
@@ -37,7 +37,7 @@ def ee_math_results(fnames):
 
     print(f"Files evaluated: {len(fnames)}")
     print(f"Total questions: {total}")
-    print(f"EE-PS MCMC accuracy:  {mcmc_acc:.3f}")
+    print(f"Truncated-PS MCMC accuracy:  {mcmc_acc:.3f}")
 
     return {
         "mcmc_acc": mcmc_acc,
@@ -50,5 +50,5 @@ if __name__ == "__main__":
 
     folder = Path(args.folder)
     fnames = sorted(str(p) for p in folder.glob("*.csv"))
-    ee_math_results(fnames)
+    truncated_math_results(fnames)
 
