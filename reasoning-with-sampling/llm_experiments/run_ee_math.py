@@ -92,7 +92,7 @@ if __name__ == "__main__":
         prefx = [idx.item() for idx in input_ids[0]]
 
         mcmc_out, _, _, accept_ratio = mcmc_power_samp_ee(
-            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=1024, block_num=16, debug=True
+            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=3072, block_num=16, debug=True
         )
 
         mcmc_completion = tokenizer.decode(torch.tensor(mcmc_out[len(prefx):], dtype=torch.long).cpu(), skip_special_tokens=True)

@@ -53,6 +53,9 @@ def early_exit_forward(self, input_ids=None, attention_mask=None, **kwargs):
     # Force output_hidden_states
     kwargs['output_hidden_states'] = True
     
+    # DEBUG: Verify we are using the patch
+    #print(f"[DEBUG] Early Exit Forward at Layer {self.ee_head.layer_idx}")
+    
     # Call original forward
     outputs = self.original_forward(input_ids, attention_mask=attention_mask, **kwargs)
     
