@@ -48,10 +48,6 @@ echo "Batch Index: ${BATCH_IDX}"
 ENV_PATH="$SCRATCH_ROOT/$USER/ee_ps_math_env"
 MARKER_FILE="$ENV_PATH/READY"
 
-# Setup Python modules (Task 0 handles creation, others wait)
-module load python/3.12.5-fasrc01
-module load cuda/12.4.1-fasrc01
-
 if [ "$BATCH_IDX" -eq 0 ]; then
     echo "Task 0: Managing environment creation..."
     
