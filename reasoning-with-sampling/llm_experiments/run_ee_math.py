@@ -10,7 +10,7 @@ import transformers
 from grader_utils.parse_utils import parse_answer
 from constants import *
 from power_samp_utils import AutoregressiveSampler, format_prompt
-from ee_utils import EarlyExitHead, calibrate_mid_layer, patch_model_with_early_exit
+from ee_utils import EarlyExitHead, patch_model_with_early_exit
 from power_samp_ee import mcmc_power_samp_ee
 
 if __name__ == "__main__":
@@ -25,7 +25,7 @@ if __name__ == "__main__":
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
     parser.add_argument("--layer_idx", action = "store", type = int, default = 18, help="Exit layer index")
-    parser.add_argument("--calibrate", action="store_true", help="Run calibration")
+    # Removed --calibrate argument as we no longer use it
     
     args = parser.parse_args()
 
@@ -69,27 +69,7 @@ if __name__ == "__main__":
 
     ee_head = EarlyExitHead(hf_model, layer_idx, device)
     
-    # Calibration (Linear Regression)
-    calib_file = os.path.join(save_str, f"calibration_layer_{layer_idx}_linear.pt")
-    if args.calibrate:
-        print("Starting Calibration...")
-        calib_data = []
-        for item in dataset[:50]: 
-            prompt = format_prompt(item["prompt"], "qwen_math", tokenizer, cot) 
-            input_ids = tokenizer.encode(prompt, return_tensors="pt")
-            calib_data.append(input_ids)
-        
-        weight, bias = calibrate_mid_layer(hf_model, calib_data, layer_idx, device)
-        ee_head.set_calibration_params(weight, bias)
-        
-        torch.save({'weight': weight, 'bias': bias}, calib_file)
-        print(f"Calibration saved to {calib_file}")
-    elif os.path.exists(calib_file):
-        print(f"Loading calibration from {calib_file}")
-        calib_params = torch.load(calib_file)
-        ee_head.set_calibration_params(calib_params['weight'], calib_params['bias'])
-    else:
-        print("No calibration found. Running uncalibrated (naive Logit Lens).")
+    # No calibration logic. Just direct mid-layer usage.
 
     # Patch Model
     patch_model_with_early_exit(hf_model, ee_head)
