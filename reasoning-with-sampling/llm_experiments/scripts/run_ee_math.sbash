@@ -11,23 +11,67 @@
 
 # --- map array id -> (batch_idx) ---
 BATCH_IDX=${SLURM_ARRAY_TASK_ID}
-SEED=42 
+SEED=42
 
-# Setup Environment
+# --- 1. Setup Paths ---
+# SCRATCH: For heavy temporary files (Environments, Models)
+SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
+
+# HOME: For the final result files (Permanent, Safe)
+RESULT_DIR="$HOME/results_ee"
+mkdir -p "$RESULT_DIR"
+
+# CRITICAL FIX: Switch to the directory where you submitted the job
+# This ensures the script finds 'run_ee_math.py' and other modules
+cd "$SLURM_SUBMIT_DIR"
+
+# Get the repository root (assuming script is in scripts/ subdirectory)
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+export PYTHONPATH="$PYTHONPATH:$REPO_ROOT/llm_experiments"
+
+echo ">>> CONFIGURATION <<<"
+echo "Running in: $(pwd)"
+echo "Repository root: $REPO_ROOT"
+echo "Temporary Scratch: $SCRATCH_ROOT"
+echo "Permanent Results: $RESULT_DIR"
+echo "Batch Index: ${BATCH_IDX}"
+
+# --- 2. Environment Setup (In Scratch) ---
+ENV_PATH="$SCRATCH_ROOT/$USER/ee_ps_math_env"
+
+# Setup Python modules
 module load python/3.12.5-fasrc01
 module load cuda/12.4.1-fasrc01
 
-# Adjust these paths to your setup
-REPO_ROOT=$(pwd)/../..
-export PYTHONPATH="$PYTHONPATH:$REPO_ROOT/llm_experiments"
-export HF_HOME="$HOME/.cache/huggingface"
+# Create environment if it doesn't exist (Self-Healing)
+if [ ! -d "$ENV_PATH" ]; then
+    echo "Creating virtual environment in scratch: $ENV_PATH"
+    python3 -m venv "$ENV_PATH"
+    source "$ENV_PATH/bin/activate"
+    pip install --upgrade pip
+    
+    # INSTALLS: Required packages for the script
+    pip install torch transformers pandas tqdm accelerate
+else
+    echo "Activating existing environment: $ENV_PATH"
+    source "$ENV_PATH/bin/activate"
+    
+    # Ensure packages are present even in existing env
+    pip install --upgrade pip
+    pip install torch transformers pandas tqdm accelerate
+fi
 
-source activate psamp
-cd $REPO_ROOT/llm_experiments
+# --- 3. Set Model Cache (In Scratch) ---
+# Keep the model weights in scratch to save your Home quota
+export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
+mkdir -p "$HF_HOME"
 
-echo "Running EE-PS Benchmark Batch ${BATCH_IDX}"
+# --- 4. Navigate to correct directory ---
+cd "$REPO_ROOT/llm_experiments"
 
-# Run Benchmark
+# --- 5. Run Script ---
+echo "Starting EE-PS Benchmark Batch ${BATCH_IDX}..."
+
 python run_ee_math.py \
   --batch_idx="${BATCH_IDX}" \
   --mcmc_steps=10 \
@@ -36,3 +80,6 @@ python run_ee_math.py \
   --model="Qwen/Qwen2.5-Math-1.5B" \
   --layer_idx=18 \
   --save_str="results_ee"
+
+echo ">>> JOB COMPLETE <<<"
+echo "Results saved in: results_ee/"
