@@ -2,7 +2,7 @@
 #SBATCH --job-name=ee_ps_math
 #SBATCH -t 0-23:59
 #SBATCH --mem=16GB
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:1
 #SBATCH --array=0-4
 #SBATCH --output=ee_ps_math_%a.out
 #SBATCH --error=ee_ps_math_%a.err
