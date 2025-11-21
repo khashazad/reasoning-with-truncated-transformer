@@ -106,13 +106,25 @@ def mcmc_power_samp_ee(p_sampler, context, temp, mcmc_steps, max_new_tokens, blo
                 
                 log_r_full = sum(target_log_prob_prop_full) + sum(log_prob_cur_cheap) - sum(target_log_prob_cur_full) - sum(log_prob_prop_cheap)
                 
+                # Delayed Acceptance logic
                 if log_r_cheap > 0:
                     correction_log_prob = log_r_full
                 else:
                     correction_log_prob = log_r_full - log_r_cheap
                 
                 u2 = random.random()
-                if u2 < min(1.0, np.exp(correction_log_prob)):
+                final_acc_prob = min(1.0, np.exp(correction_log_prob))
+                
+                if debug and total_proposals <= 5: # Print details for first few proposals
+                    prop_text_debug = p_sampler.tokenizer.decode(prop[idx:], skip_special_tokens=True)
+                    print(f"\n   [Prop {total_proposals}]")
+                    print(f"     Proposed Tokens: {repr(prop_text_debug)}")
+                    print(f"     Cheap Ratio (log): {log_r_cheap:.4f} -> Acc Prob: {acc_cheap:.4f} -> Accepted? YES")
+                    print(f"     Full Ratio (log): {log_r_full:.4f}")
+                    print(f"     Correction (log): {correction_log_prob:.4f} -> Final Acc Prob: {final_acc_prob:.4f}")
+                    print(f"     Accepted? {'YES' if u2 < final_acc_prob else 'NO'}")
+                
+                if u2 < final_acc_prob:
                     full_accepts += 1
                     gen = prop.copy()
                     
@@ -121,6 +133,12 @@ def mcmc_power_samp_ee(p_sampler, context, temp, mcmc_steps, max_new_tokens, blo
                     log_probs_unnorm_full[idx-c:] = target_log_prob_prop_full
                     
                     del prop
+            else:
+                if debug and total_proposals <= 5:
+                     prop_text_debug = p_sampler.tokenizer.decode(prop[idx:], skip_special_tokens=True)
+                     print(f"\n   [Prop {total_proposals}]")
+                     print(f"     Proposed Tokens: {repr(prop_text_debug)}")
+                     print(f"     Cheap Ratio (log): {log_r_cheap:.4f} -> Acc Prob: {acc_cheap:.4f} -> Accepted? NO")
             
         if p_sampler.tokenizer.eos_token_id in gen:
              eos_idx = gen.index(p_sampler.tokenizer.eos_token_id)
