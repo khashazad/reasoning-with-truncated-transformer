@@ -24,7 +24,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
-    parser.add_argument("--layer_idx", action = "store", type = int, default = 14, help="Exit layer index")
+    parser.add_argument("--layer_idx", action = "store", type = int, default = 18, help="Exit layer index")
     parser.add_argument("--calibrate", action="store_true", help="Run calibration")
     
     args = parser.parse_args()
@@ -69,8 +69,8 @@ if __name__ == "__main__":
 
     ee_head = EarlyExitHead(hf_model, layer_idx, device)
     
-    # Calibration
-    calib_file = os.path.join(save_str, f"calibration_layer_{layer_idx}.pt")
+    # Calibration (Linear Regression)
+    calib_file = os.path.join(save_str, f"calibration_layer_{layer_idx}_linear.pt")
     if args.calibrate:
         print("Starting Calibration...")
         calib_data = []
@@ -79,21 +79,15 @@ if __name__ == "__main__":
             input_ids = tokenizer.encode(prompt, return_tensors="pt")
             calib_data.append(input_ids)
         
-        mu_L, sigma_L, mu_final, sigma_final = calibrate_mid_layer(hf_model, calib_data, layer_idx, device)
-        ee_head.set_calibration_params(mu_L, sigma_L, mu_final, sigma_final)
+        weight, bias = calibrate_mid_layer(hf_model, calib_data, layer_idx, device)
+        ee_head.set_calibration_params(weight, bias)
         
-        torch.save({
-            'mu_L': mu_L, 'sigma_L': sigma_L, 
-            'mu_final': mu_final, 'sigma_final': sigma_final
-        }, calib_file)
+        torch.save({'weight': weight, 'bias': bias}, calib_file)
         print(f"Calibration saved to {calib_file}")
     elif os.path.exists(calib_file):
         print(f"Loading calibration from {calib_file}")
         calib_params = torch.load(calib_file)
-        ee_head.set_calibration_params(
-            calib_params['mu_L'], calib_params['sigma_L'],
-            calib_params['mu_final'], calib_params['sigma_final']
-        )
+        ee_head.set_calibration_params(calib_params['weight'], calib_params['bias'])
     else:
         print("No calibration found. Running uncalibrated (naive Logit Lens).")
 

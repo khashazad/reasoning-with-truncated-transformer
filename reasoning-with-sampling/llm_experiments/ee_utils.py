@@ -13,23 +13,15 @@ class EarlyExitHead:
         self.layer_idx = layer_idx
         self.device = device
         
-        # Calibration parameters (diagonal affine map)
-        self.mu_L = None
-        self.sigma_L = None
-        self.mu_final = None
-        self.sigma_final = None
-        
-        # Temperature scaling params
-        self.temp = 1.0
-        self.bias = 0.0
+        # Linear Calibration parameters: h_final = h_mid @ weight.T + bias
+        self.weight = None
+        self.bias = None
         
         self.is_calibrated = False
 
-    def set_calibration_params(self, mu_L, sigma_L, mu_final, sigma_final):
-        self.mu_L = mu_L.to(self.device)
-        self.sigma_L = sigma_L.to(self.device)
-        self.mu_final = mu_final.to(self.device)
-        self.sigma_final = sigma_final.to(self.device)
+    def set_calibration_params(self, weight, bias):
+        self.weight = weight.to(self.device)
+        self.bias = bias.to(self.device)
         self.is_calibrated = True
 
     def get_mid_logits(self, hidden_states_L):
@@ -40,8 +32,8 @@ class EarlyExitHead:
         if not self.is_calibrated:
             h_mapped = hidden_states_L
         else:
-            # Apply diagonal affine map
-            h_mapped = self.sigma_final * (hidden_states_L - self.mu_L) / (self.sigma_L + 1e-6) + self.mu_final
+            # Apply linear map: h @ W.T + b
+            h_mapped = F.linear(hidden_states_L, self.weight, self.bias)
             
         # Apply final norm and head
         if hasattr(self.model, 'model') and hasattr(self.model.model, 'norm'):
@@ -49,6 +41,7 @@ class EarlyExitHead:
         elif hasattr(self.model, 'norm'):
              norm_layer = self.model.norm
         else:
+             # Fallback 
              raise ValueError("Could not find final normalization layer in model")
 
         h_normed = norm_layer(h_mapped)
@@ -58,17 +51,13 @@ class EarlyExitHead:
 
 def calibrate_mid_layer(model, dataloader, layer_idx, device, num_batches=10):
     """
-    Computes Mean and Std for the mid-layer and the final layer (pre-norm).
+    Computes Linear Regression parameters W, b such that h_L @ W.T + b approx h_final.
     """
     model.eval()
     mid_states = []
     final_states = []
     
-    print(f"Calibrating layer {layer_idx}...")
-    
-    # Ensure we use the ORIGINAL forward for calibration!
-    # If model is already patched, we must access original_forward if possible, 
-    # OR assume this is called BEFORE patching.
+    print(f"Calibrating layer {layer_idx} using Linear Regression...")
     
     with torch.no_grad():
         for i, batch in enumerate(tqdm(dataloader, total=num_batches)):
@@ -88,29 +77,50 @@ def calibrate_mid_layer(model, dataloader, layer_idx, device, num_batches=10):
             mid_states.append(h_L.reshape(-1, h_L.shape[-1]).cpu())
             final_states.append(h_final.reshape(-1, h_final.shape[-1]).cpu())
             
-    mid_states = torch.cat(mid_states, dim=0)
-    final_states = torch.cat(final_states, dim=0)
+    X = torch.cat(mid_states, dim=0).float() # [N, d_in]
+    Y = torch.cat(final_states, dim=0).float() # [N, d_out]
     
-    print(f"Collected {mid_states.shape[0]} tokens for calibration.")
+    print(f"Collected {X.shape[0]} tokens. Solving Least Squares...")
     
-    mu_L = mid_states.mean(dim=0)
-    sigma_L = mid_states.std(dim=0)
+    # We want to find W, b such that X @ W.T + b = Y
+    # Add bias term to X
+    X_bias = torch.cat([X, torch.ones(X.shape[0], 1)], dim=1) # [N, d_in + 1]
     
-    mu_final = final_states.mean(dim=0)
-    sigma_final = final_states.std(dim=0)
+    # Solve: X_bias @ Theta = Y, where Theta is [d_in+1, d_out]
+    # Theta = (X.T X)^-1 X.T Y
+    # Using torch.linalg.lstsq
     
-    return mu_L, sigma_L, mu_final, sigma_final
+    # Depending on size, lstsq might be slow. 
+    # N ~ 10 batches * 500 tokens ~ 5000. 
+    # dim ~ 1536.
+    # X is 5000x1537.
+    # This is small enough for direct solve.
+    
+    solution = torch.linalg.lstsq(X_bias, Y).solution # [d_in+1, d_out]
+    
+    # Extract W and b
+    # Theta = [W.T; b]
+    # W.T is [d_in, d_out]
+    # b is [1, d_out]
+    
+    W_T = solution[:-1, :]
+    b = solution[-1, :]
+    
+    weight = W_T.t() # [d_out, d_in]
+    bias = b # [d_out]
+    
+    print("Calibration complete.")
+    
+    return weight, bias
 
 def early_exit_forward(self, input_ids=None, attention_mask=None, **kwargs):
     """
     Monkey-patchable forward method.
-    'self' will be bound to the model instance.
     """
     # Force output_hidden_states
     kwargs['output_hidden_states'] = True
     
     # Call original forward
-    # We assume self.original_forward exists
     outputs = self.original_forward(input_ids, attention_mask=attention_mask, **kwargs)
     
     # Get mid logits
