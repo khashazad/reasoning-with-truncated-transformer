@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash --login
 #SBATCH --job-name=ee_ps_math
 #SBATCH --partition=gpunodes
 #SBATCH -t 0-23:59
@@ -13,6 +13,15 @@
 BATCH_IDX=${SLURM_ARRAY_TASK_ID}
 SEED=42
 
+# Ensure module command is available
+if [ -f /etc/profile ]; then
+    source /etc/profile
+fi
+# Some systems use a modules.sh file
+if [ -f /etc/profile.d/modules.sh ]; then
+    source /etc/profile.d/modules.sh
+fi
+
 # --- 1. Setup Paths ---
 # SCRATCH: For heavy temporary files (Environments, Models)
 SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
@@ -22,11 +31,10 @@ RESULT_DIR="$HOME/results_ee"
 mkdir -p "$RESULT_DIR"
 
 # CRITICAL FIX: Switch to the directory where you submitted the job
-# This ensures the script finds 'run_ee_math.py' and other modules
-cd "$SLURM_SUBMIT_DIR"
+cd "$SLURM_SUBMIT_DIR" || exit 1
 
-# Get the repository root (assuming script is in scripts/ subdirectory)
-REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+# Get the repository root relative to the submission directory (scripts/)
+REPO_ROOT="$(pwd)/../.."
 export PYTHONPATH="$PYTHONPATH:$REPO_ROOT/llm_experiments"
 
 echo ">>> CONFIGURATION <<<"
@@ -38,36 +46,54 @@ echo "Batch Index: ${BATCH_IDX}"
 
 # --- 2. Environment Setup (In Scratch) ---
 ENV_PATH="$SCRATCH_ROOT/$USER/ee_ps_math_env"
+MARKER_FILE="$ENV_PATH/READY"
 
-# Setup Python modules
+# Setup Python modules (Task 0 handles creation, others wait)
 module load python/3.12.5-fasrc01
 module load cuda/12.4.1-fasrc01
 
-# Create environment if it doesn't exist (Self-Healing)
-if [ ! -d "$ENV_PATH" ]; then
-    echo "Creating virtual environment in scratch: $ENV_PATH"
-    python3 -m venv "$ENV_PATH"
-    source "$ENV_PATH/bin/activate"
-    pip install --upgrade pip
+if [ "$BATCH_IDX" -eq 0 ]; then
+    echo "Task 0: Managing environment creation..."
     
-    # INSTALLS: Required packages for the script
-    pip install torch transformers pandas tqdm accelerate
+    # Clean partial install if needed (optional, but safe)
+    # rm -rf "$ENV_PATH" 
+    
+    if [ ! -d "$ENV_PATH" ]; then
+        echo "Creating virtual environment in scratch: $ENV_PATH"
+        python3 -m venv "$ENV_PATH"
+        source "$ENV_PATH/bin/activate"
+        pip install --upgrade pip
+        
+        # INSTALLS: Required packages for the script
+        pip install torch transformers pandas tqdm accelerate
+        
+        # Mark as ready
+        touch "$MARKER_FILE"
+    else
+        echo "Environment exists. checking readiness..."
+        # Ensure it's ready if it existed from a previous run
+        source "$ENV_PATH/bin/activate"
+        if [ ! -f "$MARKER_FILE" ]; then
+             # In case it exists but wasn't fully ready (previous crash?)
+             pip install torch transformers pandas tqdm accelerate
+             touch "$MARKER_FILE"
+        fi
+    fi
 else
-    echo "Activating existing environment: $ENV_PATH"
+    echo "Task ${BATCH_IDX}: Waiting for environment to be ready..."
+    while [ ! -f "$MARKER_FILE" ]; do
+        sleep 10
+    done
+    echo "Environment is ready. Activating..."
     source "$ENV_PATH/bin/activate"
-    
-    # Ensure packages are present even in existing env
-    pip install --upgrade pip
-    pip install torch transformers pandas tqdm accelerate
 fi
 
 # --- 3. Set Model Cache (In Scratch) ---
-# Keep the model weights in scratch to save your Home quota
 export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
 mkdir -p "$HF_HOME"
 
 # --- 4. Navigate to correct directory ---
-cd "$REPO_ROOT/llm_experiments"
+cd "$REPO_ROOT/llm_experiments" || exit 1
 
 # --- 5. Run Script ---
 echo "Starting EE-PS Benchmark Batch ${BATCH_IDX}..."
@@ -82,4 +108,3 @@ python run_ee_math.py \
   --save_str="results_ee"
 
 echo ">>> JOB COMPLETE <<<"
-echo "Results saved in: results_ee/"
