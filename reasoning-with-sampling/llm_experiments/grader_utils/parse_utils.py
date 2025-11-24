@@ -2,6 +2,8 @@ import json
 import numpy as np
 
 def remove_boxed(s):
+    if s is None:
+        return None
     left = "\\boxed{"
     try:
         assert s[:len(left)] == left

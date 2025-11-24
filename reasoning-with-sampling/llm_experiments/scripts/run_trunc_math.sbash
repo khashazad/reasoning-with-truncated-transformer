@@ -3,8 +3,8 @@
 #SBATCH --partition=gpunodes
 #SBATCH -t 0-23:59
 #SBATCH -c 4
-#SBATCH --mem=16GB
-#SBATCH --gres=gpu:rtx_a4000:1
+#SBATCH --mem=24GB
+#SBATCH --gres=gpu:rtx_4090:1
 #SBATCH --array=0-4
 #SBATCH --output=trunc_ps_math_%a.out
 #SBATCH --error=trunc_ps_math_%a.err
@@ -45,7 +45,7 @@ echo "Permanent Results: $RESULT_DIR"
 echo "Batch Index: ${BATCH_IDX}"
 
 # --- 2. Environment Setup (In Scratch) ---
-ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_env"
+ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_env2"
 MARKER_FILE="$ENV_PATH/READY"
 
 if [ "$BATCH_IDX" -eq 0 ]; then
@@ -58,7 +58,7 @@ if [ "$BATCH_IDX" -eq 0 ]; then
         pip install --upgrade pip
         
         # INSTALLS: Required packages for the script
-        pip install torch transformers pandas tqdm accelerate datasets
+        pip install torch transformers pandas tqdm accelerate datasets || exit 1
         
         # Mark as ready
         touch "$MARKER_FILE"
@@ -89,13 +89,13 @@ cd "$REPO_ROOT/llm_experiments" || exit 1
 # --- 5. Run Script ---
 echo "Starting Truncated-PS Benchmark Batch ${BATCH_IDX}..."
 
-python run_ee_math.py \
+python run_trunc_math.py \
   --batch_idx="${BATCH_IDX}" \
-  --mcmc_steps=10 \
-  --temperature=0.25 \
+  --mcmc_steps=8 \
+  --temperature=0.5 \
   --seed="${SEED}" \
-  --model="Qwen/Qwen2.5-Math-1.5B" \
-  --layer_idx=18 \
+  --model="Qwen/Qwen2.5-Math-7B" \
+  --layer_idx=21 \
   --save_str="results_truncated"
 
 echo ">>> JOB COMPLETE <<<"

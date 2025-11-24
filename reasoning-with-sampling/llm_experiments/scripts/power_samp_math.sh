@@ -28,7 +28,7 @@ cd /path/to/reasoning-with-sampling/llm_experiments
 echo "Running shard BATCH_IDX=${BATCH_IDX} with SEED=${SEED} (task ${SLURM_ARRAY_TASK_ID})"
 python power_samp_math.py \
   --batch_idx="${BATCH_IDX}" \
-  --mcmc_steps=10 \
-  --temp=0.25 \
+  --mcmc_steps=8 \
+  --temp=0.5 \
   --seed="${SEED}" \
   --model=qwen_math

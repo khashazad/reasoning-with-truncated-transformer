@@ -15,14 +15,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--save_str", action = "store", type = str, default = "results/",  dest = "save_str")
     parser.add_argument("--model", action = "store", default = "Qwen/Qwen2.5-Math-1.5B", type = str)
-    parser.add_argument("--temperature", action = "store", default = 0.25, type = float, dest = "temperature")
+    parser.add_argument("--temperature", action = "store", default = 0.5, type = float, dest = "temperature")
     parser.add_argument("--dataset", action = "store", default = "MATH", type = str)
     parser.add_argument("--cot", action = "store", type = bool, default = True)
     parser.add_argument("--mcmc_steps", action = "store", type = int, default = 10)
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
-    parser.add_argument("--layer_idx", action = "store", type = int, default = 18, help="Truncate model to this layer index (0-indexed)")
+    parser.add_argument("--layer_idx", action = "store", type = int, default =21, help="Truncate model to this layer index (0-indexed)")
     
     args = parser.parse_args()
 
@@ -95,13 +95,14 @@ if __name__ == "__main__":
 
         # Using standard mcmc_power_samp on the truncated model
         mcmc_out, _, _, accept_ratio = mcmc_power_samp(
-            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=3072, block_num=16
+            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=1024, block_num=16
         )
 
         mcmc_completion = tokenizer.decode(torch.tensor(mcmc_out[len(prefx):], dtype=torch.long).cpu(), skip_special_tokens=True)
         mcmc_answer_parsed = parse_answer(mcmc_completion)
         
-        print(f"Q: {question[:50]}...")
+        print(f"Q: {question}")
+        print(f"Completion: {mcmc_completion}")
         print(f"A: {mcmc_answer_parsed}")
         print(f"Ratio: {accept_ratio}")
 
@@ -115,5 +116,10 @@ if __name__ == "__main__":
 
     out_file = os.path.join(save_str, f"truncated_ps_results_layer{layer_idx}_steps{mcmc_steps}_temp{temp}_batch{args.batch_idx}.csv")
     df = pd.DataFrame(results)
-    df.to_csv(out_file, index=False)
-    print(f"Saved results to {out_file}")
+    try:
+        df.to_csv(out_file, index=False)
+        print(f"Saved results to {out_file}")
+    except Exception as e:
+        print(f"ERROR: Failed to save CSV to {out_file}: {e}")
+        print("DUMPING RESULTS TO STDOUT:")
+        print(df.to_csv(index=False))
