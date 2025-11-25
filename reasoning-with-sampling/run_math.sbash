@@ -4,7 +4,7 @@
 #SBATCH -t 0-23:59
 #SBATCH -c 4
 #SBATCH --mem=24GB
-#SBATCH --gres=gpu:rtx_a4000:1
+#SBATCH --gres=gpu:gtx_1080_ti:1
 #SBATCH --output=slurm_jobs/%a.out
 #SBATCH --error=slurm_jobs/%a.err
 #SBATCH --mail-user=khashayar1924@gmail.com
