@@ -1,4 +1,14 @@
-#!/bin/bash
+#!/bin/bash --login
+#SBATCH --job-name=trunc_ps_math_hf
+#SBATCH --partition=gpunodes
+#SBATCH -t 0-23:59
+#SBATCH -c 4
+#SBATCH --mem=24GB
+#SBATCH --gres=gpu:rtx_a2000:1
+#SBATCH --output=slurm_jobs/%a.out
+#SBATCH --error=slurm_jobs/%a.err
+#SBATCH --mail-user=khashayar1924@gmail.com
+#SBATCH --mail-type=ALL
 
 RESULT_DIR="./results"
 mkdir -p "$RESULT_DIR"
