@@ -1,10 +1,20 @@
 #!/bin/bash --login
+
+# --- DEBUGGING / ROBUSTNESS ---
+# set -e: Exit immediately if a command exits with a non-zero status.
+# set -u: Treat unset variables as an error.
+# set -o pipefail: The exit status of a pipeline is the exit status of the last command
+#                  that exited with a non-zero status.
+set -euo pipefail
+
 #SBATCH --job-name=trunc_ps_math_hf
 #SBATCH --partition=gpunodes
 #SBATCH -t 0-23:59
 #SBATCH -c 4
 #SBATCH --mem=24GB
 #SBATCH --gres=gpu:rtx_a4000:1
+# NOTE: The array is currently 0-1, but the comments suggest 8 layers (0-7).
+# Only layers 20 and 21 will run with array=0-1.
 #SBATCH --array=0-1
 #SBATCH --output=slurm_jobs/%a.out
 #SBATCH --error=slurm_jobs/%a.err
@@ -31,18 +41,19 @@ KEEP_LAST_LAYER=true # Set to false for no-last variants
 # Generate model name for path (replace / with _)
 MODEL_NAME_PATH=$(echo "$MODEL_NAME" | tr '/' '_')
 
-# Ensure module command is available
-if [ -f /etc/profile ]; then
-    source /etc/profile
-fi
-# Some systems use a modules.sh file
-if [ -f /etc/profile.d/modules.sh ]; then
-    source /etc/profile.d/modules.sh
+# Attempt to source module commands for environment consistency
+if command -v module &> /dev/null; then
+    module purge
+    echo "Modules environment purged for clean venv usage."
 fi
 
 # --- 1. Setup Paths ---
-# SCRATCH: For heavy temporary files (Environments, Models)
+# Get the first available scratch directory
 SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
+if [ -z "$SCRATCH_ROOT" ]; then
+    echo "FATAL ERROR: Could not find scratch space directory."
+    exit 1
+fi
 
 # CRITICAL FIX: Switch to the directory where you submitted the job
 cd "$SLURM_SUBMIT_DIR" || exit 1
@@ -75,12 +86,12 @@ echo "Repository root: $REPO_ROOT"
 echo "Temporary Scratch: $SCRATCH_ROOT"
 echo "Results Directory: $RESULTS_DIR"
 echo "Layer Index: ${LAYER_IDX} (will process batches 0-$(($NUM_BATCHES - 1)))"
-echo "HF Repo Base: ${HF_REPO_BASE}"
 echo "HF Model Path: ${HF_MODEL_PATH}"
 echo "Keep Last Layer: ${KEEP_LAST_LAYER}"
 
 # --- 2. Environment Setup (In Scratch) ---
 ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_hf_env"
+ENV_READY_FILE="$ENV_PATH/.READY"
 # PYTHON_BIN is the synchronization point for array tasks
 PYTHON_BIN="$ENV_PATH/bin/python"
 PIP_BIN="$ENV_PATH/bin/pip"
@@ -88,51 +99,68 @@ PIP_BIN="$ENV_PATH/bin/pip"
 if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
     echo "Task 0: Managing environment creation..."
 
+    # 1. Handle VENV Creation
     if [ ! -d "$ENV_PATH" ]; then
         echo "Creating virtual environment in scratch: $ENV_PATH"
-        # 1. Create venv
-        python3 -m venv "$ENV_PATH"
+        python3 -m venv "$ENV_PATH" || { echo "Failed to create venv."; exit 1; }
+    fi
 
-        # 2. Install using the venv's pip executable directly (No 'source/deactivate' needed)
-        echo "Installing Python dependencies using $PIP_BIN..."
-        "$PIP_BIN" install --upgrade pip || exit 1
+    # 2. Check and Handle Package Installation
+    if [ ! -f "$ENV_READY_FILE" ]; then
+        echo "--- ENVIRONMENT INSTALLATION START ---"
+        echo "Sentinel file ($ENV_READY_FILE) not found. Running/Re-running package installation."
+
+        # A. Clean up old binary if installation failed mid-way
+        if [ ! -f "$PYTHON_BIN" ]; then
+             echo "Python binary missing. Re-running environment creation."
+             rm -rf "$ENV_PATH"
+             python3 -m venv "$ENV_PATH" || { echo "Failed to recreate venv."; exit 1; }
+        fi
+
+        # B. Install dependencies (idempotent, fixes missing packages)
+        echo "Installing Python dependencies using $PIP_BIN (This may take a while)..."
+        "$PIP_BIN" install --upgrade pip || { echo "Failed to upgrade pip."; exit 1; }
 
         # INSTALLS: Required packages for the script
-        "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
+        # Running this again is idempotent and will fix missing packages reported by user
+        "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || { echo "Failed to install core packages."; exit 1; }
 
-        echo "Environment successfully created and installed."
+        # C. Mark environment as fully installed and ready
+        touch "$ENV_READY_FILE"
+        echo "--- ENVIRONMENT INSTALLATION COMPLETE ---"
     else
-        echo "Environment exists. Checking Python executable readiness..."
-
-        # Check if the Python binary exists; if not, re-create the environment entirely.
-        if [ ! -f "$PYTHON_BIN" ]; then
-            echo "Python binary missing. Re-running environment creation."
-            # Remove partial environment and start over
-            rm -rf "$ENV_PATH"
-            python3 -m venv "$ENV_PATH"
-            # Re-install using direct pip path
-            "$PIP_BIN" install --upgrade pip || exit 1
-            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub
-        else
-            echo "Environment is ready. Proceeding."
-            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub
-        fi
+        echo "Environment is marked as READY ($ENV_READY_FILE found). Proceeding without re-installing."
     fi
+
 else
-    # Non-zero tasks wait until the Python binary is created by Task 0
-    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready (checking for $PYTHON_BIN)..."
-    while [ ! -f "$PYTHON_BIN" ]; do
+    # Non-zero tasks wait for Task 0 to create the venv and finish installation
+    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready (checking for $ENV_READY_FILE)..."
+
+    WAIT_COUNT=0
+    # Wait for the .READY file to appear, which signals that Task 0 is done setting up.
+    while [ ! -f "$ENV_READY_FILE" ]; do
+        if [ "$WAIT_COUNT" -gt 60 ]; then
+            echo "ERROR: Timeout waiting for Task 0 to fully install environment. Exiting."
+            exit 1
+        fi
         sleep 10
+        WAIT_COUNT=$((WAIT_COUNT + 1))
     done
-    echo "Environment is ready. Proceeding..."
+
+    # Final check: ensure the python binary is definitely present before using it
+    if [ ! -f "$PYTHON_BIN" ]; then
+        echo "FATAL ERROR: Ready file found, but Python binary is missing. Exiting."
+        exit 1
+    fi
+    echo "Environment is fully ready. Proceeding..."
 fi
 
 # --- CRITICAL FIX: Export Python path for use below ---
 # Use the full, absolute path to the Python executable inside the environment.
 export PYTHON_EXEC="$PYTHON_BIN"
 
-
 # --- 3. Set Model Cache (In Scratch) ---
+echo "Setting Hugging Face cache location..."
 export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
 mkdir -p "$HF_HOME"
 
@@ -140,7 +168,7 @@ mkdir -p "$HF_HOME"
 cd "$REPO_ROOT" || exit 1
 
 # --- 5. Run Script ---
-echo "Starting Truncated-PS Benchmark for Layer ${LAYER_IDX}..."
+echo "--- Starting Main Benchmark Loop ---"
 
 # Build the command with optional keep_last_layer flag
 KEEP_FLAG=""
@@ -156,7 +184,8 @@ for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
     echo "========================================="
 
     # Using the exported PYTHON_EXEC path guarantees we use the Python with installed packages
-    "$PYTHON_EXEC" run_math.py \
+    # Use 'time' to measure execution time for this batch (optional but useful)
+    time "$PYTHON_EXEC" run_math.py \
       --batch_idx="${BATCH_IDX}" \
       --mcmc_steps=10 \
       --temperature=0.25 \
@@ -168,8 +197,9 @@ for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
       --save_str="${RESULTS_DIR}"
 
     if [ $? -ne 0 ]; then
-        echo "ERROR: Batch ${BATCH_IDX} failed for layer ${LAYER_IDX}"
-        # Continue with next batch instead of exiting
+        echo "WARNING: Batch ${BATCH_IDX} failed for layer ${LAYER_IDX}. Continuing to next batch."
+    else
+        echo "SUCCESS: Batch ${BATCH_IDX} finished."
     fi
 done
 
