@@ -8,7 +8,7 @@
 #SBATCH --array=0-1
 #SBATCH --output=slurm_jobs/trunc_ps_math_hf_%a.out
 #SBATCH --error=slurm_jobs/trunc_ps_math_hf_%a.err
-#SBATCH --mail-user=khashayar1924@gmai.com
+#SBATCH --mail-user=khashayar1924@gmail.com
 #SBATCH --mail-type=ALL
 
 # --- Configuration ---
@@ -107,6 +107,8 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
              pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
              touch "$MARKER_FILE"
         fi
+
+        pip install tqdm accelerate datasets huggingface_hub
     fi
 else
     echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready..."
