@@ -5,9 +5,9 @@
 #SBATCH -c 4
 #SBATCH --mem=24GB
 #SBATCH --gres=gpu:rtx_a4000:1
-#SBATCH --array=0-0
+#SBATCH --array=0-1
 #SBATCH --output=slurm_jobs/%a.out
-#SBATCH --error=slurm_jobs/%a.err
+#SBATCH --error=slurm_jobs/trunc_ps_math_hf_%a.err
 #SBATCH --mail-user=khashayar1924@gmail.com
 #SBATCH --mail-type=ALL
 
@@ -81,40 +81,38 @@ echo "Keep Last Layer: ${KEEP_LAST_LAYER}"
 
 # --- 2. Environment Setup (In Scratch) ---
 ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_hf_env"
-# PYTHON_BIN is now the synchronization point
+# PYTHON_BIN is the synchronization point for array tasks
 PYTHON_BIN="$ENV_PATH/bin/python"
+PIP_BIN="$ENV_PATH/bin/pip"
 
 if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
     echo "Task 0: Managing environment creation..."
 
     if [ ! -d "$ENV_PATH" ]; then
         echo "Creating virtual environment in scratch: $ENV_PATH"
+        # 1. Create venv
         python3 -m venv "$ENV_PATH"
 
-        # Temporarily activate for installation only
-        source "$ENV_PATH/bin/activate"
-        pip install --upgrade pip
+        # 2. Install using the venv's pip executable directly (No 'source/deactivate' needed)
+        echo "Installing Python dependencies using $PIP_BIN..."
+        "$PIP_BIN" install --upgrade pip || exit 1
 
         # INSTALLS: Required packages for the script
-        pip install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
-
-        # Deactivate immediately
-        deactivate
+        "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
 
         echo "Environment successfully created and installed."
     else
         echo "Environment exists. Checking Python executable readiness..."
 
-        # If the environment directory exists but the python binary is missing (unlikely, but safe check)
+        # Check if the Python binary exists; if not, re-create the environment entirely.
         if [ ! -f "$PYTHON_BIN" ]; then
             echo "Python binary missing. Re-running environment creation."
             # Remove partial environment and start over
             rm -rf "$ENV_PATH"
             python3 -m venv "$ENV_PATH"
-            source "$ENV_PATH/bin/activate"
-            pip install --upgrade pip
-            pip install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
-            deactivate
+            # Re-install using direct pip path
+            "$PIP_BIN" install --upgrade pip || exit 1
+            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
         else
             echo "Environment is ready. Proceeding."
         fi
@@ -156,7 +154,7 @@ for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
     echo "HF Model Path: ${HF_MODEL_PATH}"
     echo "========================================="
 
-    # CRITICAL CHANGE: Use the exported PYTHON_EXEC path instead of just 'python'
+    # Using the exported PYTHON_EXEC path guarantees we use the Python with installed packages
     "$PYTHON_EXEC" run_math.py \
       --batch_idx="${BATCH_IDX}" \
       --mcmc_steps=10 \
