@@ -61,12 +61,12 @@ if __name__ == "__main__":
     parser.add_argument("--model", action = "store", default = "Qwen/Qwen2.5-Math-1.5B", type = str)
     parser.add_argument("--temperature", action = "store", default = 0.5, type = float, dest = "temperature")
     parser.add_argument("--dataset", action = "store", default = "MATH", type = str)
-    parser.add_argument("--cot", action = "store", type = bool, default = True)
+    parser.add_argument("--cot", action = "store", type = bool, default = False)
     parser.add_argument("--mcmc_steps", action = "store", type = int, default = 10)
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
-    parser.add_argument("--layer_idx", action = "store", type = int, default =21, help="Truncate model to this layer index (0-indexed)")
+    parser.add_argument("--layer_idx", action = "store", type = int, default =22, help="Truncate model to this layer index (0-indexed)")
 
     args = parser.parse_args()
 
@@ -114,8 +114,8 @@ if __name__ == "__main__":
 
     results = []
 
-    start = 100*args.batch_idx
-    end = 100*(args.batch_idx+1)
+    start = 20*args.batch_idx
+    end = 20*(args.batch_idx+1)
     end = min(end, len(dataset))
 
     for i, data in tqdm(enumerate(dataset[start:end]), total=end-start, desc="Truncated-PS Benchmark"):
@@ -128,7 +128,7 @@ if __name__ == "__main__":
 
         # Using standard mcmc_power_samp on the truncated model
         mcmc_out, _, _, accept_ratio = mcmc_power_samp(
-            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=1024, block_num=16
+            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=512, block_num=16
         )
 
         mcmc_completion = tokenizer.decode(torch.tensor(mcmc_out[len(prefx):], dtype=torch.long).cpu(), skip_special_tokens=True)
