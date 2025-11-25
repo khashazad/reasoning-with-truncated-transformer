@@ -18,16 +18,20 @@ echo "Running in: $(pwd)"
 
 ENV_PATH="$HOME/math_trunc_run_env"
 
+SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
+
 if [ ! -d "$ENV_PATH" ]; then
+    echo "Creating virtual environment in scratch: $ENV_PATH"
     python3 -m venv "$ENV_PATH"
     source "$ENV_PATH/bin/activate"
-    python3 -m pip install --upgrade pip
-    python3 -m pip install torch transformers pandas accelerate datasets huggingface_hub
-    python3 -m pip install "git+https://github.com/tqdm/tqdm.git@devel#egg=tqdm"
+    pip install --upgrade pip
+
+    pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
 else
+    echo "Activating existing environment: $ENV_PATH"
     source "$ENV_PATH/bin/activate"
-    python3 -m pip install torch transformers pandas accelerate datasets huggingface_hub
-    python3 -m pip install "git+https://github.com/tqdm/tqdm.git@devel#egg=tqdm"
+
+    pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
 fi
 
-python3 run_trunc_math.py
+python run_trunc_math.py
