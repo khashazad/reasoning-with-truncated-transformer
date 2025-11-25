@@ -44,6 +44,12 @@ def truncate_model(model, layer_idx, keep_last_layer=True):
     setattr(container, attr, torch.nn.ModuleList(truncated_layers))
     model.config.num_hidden_layers = len(truncated_layers)
 
+    # CRITICAL FIX: Update layer_idx for each layer to match new position
+    # This fixes the KV cache IndexError when using keep_last_layer=True
+    for new_idx, layer in enumerate(truncated_layers):
+        if hasattr(layer, 'self_attn') and hasattr(layer.self_attn, 'layer_idx'):
+            layer.self_attn.layer_idx = new_idx
+
     if getattr(model.config, "layer_types", None):
         layer_types = list(model.config.layer_types)
         new_layer_types = layer_types[: layer_idx + 1]

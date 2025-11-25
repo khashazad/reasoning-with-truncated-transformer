@@ -1,5 +1,5 @@
 #!/bin/bash --login
-#SBATCH --job-name=trunc_ps_math_hf
+#SBATCH --job-name=trunc_ps_math_hf_2
 #SBATCH --partition=gpunodes
 #SBATCH -t 0-23:59
 #SBATCH -c 4
@@ -24,25 +24,28 @@ if [ -z "$SCRATCH_ROOT" ]; then
 fi
 echo "Using scratch space: $SCRATCH_ROOT"
 
-ENV_NAME="math_trunc_run_env"
+ENV_NAME="math_trunc_run_env_ganni"
 ENV_PATH="$SCRATCH_ROOT/$ENV_NAME"
+# --- ADD: Set PYTHONPATH ---
+export PYTHONPATH="$PYTHONPATH:$(pwd)"
 
-PYTHON_INTERPRETER="$ENV_PATH/bin/python"
-
-PIP_EXECUTABLE="$ENV_PATH/bin/pip"
+# --- ADD: Set HF_HOME for model cache ---
+export HF_HOME="$SCRATCH_ROOT/hf_cache"
+mkdir -p "$HF_HOME"
 
 if [ ! -d "$ENV_PATH" ]; then
     echo "Creating virtual environment at $ENV_PATH..."
     python3 -m venv "$ENV_PATH"
-else
-    echo "Virtual environment already exists at $ENV_PATH."
 fi
 
-echo "Installing dependencies using $PIP_EXECUTABLE..."
+# --- ADD: Activate the environment (CRITICAL FIX) ---
+source "$ENV_PATH/bin/activate"
 
-"$PIP_EXECUTABLE" install --upgrade pip
-"$PIP_EXECUTABLE" install --no-cache-dir torch transformers pandas tqdm accelerate datasets huggingface_hub
+echo "Installing dependencies..."
+pip install --upgrade pip
+pip install --no-cache-dir torch transformers pandas tqdm accelerate datasets huggingface_hub
 
-echo "Running script with $PYTHON_INTERPRETER..."
+echo "Running script..."
+python run_trunc_math.py
 
-"$PYTHON_INTERPRETER" run_trunc_math.py
+echo ">>> JOB COMPLETE <<<"
