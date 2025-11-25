@@ -5,7 +5,6 @@
 #SBATCH -c 4
 #SBATCH --mem=24GB
 #SBATCH --gres=gpu:rtx_a4000:1
-#SBATCH --array=0-1
 #SBATCH --output=slurm_jobs/%a.out
 #SBATCH --error=slurm_jobs/%a.err
 #SBATCH --mail-user=khashayar1924@gmail.com
@@ -16,12 +15,11 @@
 # Each array task handles one layer and loops through all batches
 LAYER_START=20
 LAYER_END=27
-NUM_BATCHES=5
 SEED=42
 
 # --- map array id -> layer_idx ---
 # Array 0-7 maps to layers 20-27
-LAYER_IDX=$((SLURM_ARRAY_TASK_ID + LAYER_START))
+LAYER_IDX=20
 
 # Hugging Face repo configuration
 HF_REPO_BASE="khashazad/Qwen_Qwen2.5-Math-1.5B-truncated"
@@ -31,37 +29,12 @@ KEEP_LAST_LAYER=true # Set to false for no-last variants
 # Generate model name for path (replace / with _)
 MODEL_NAME_PATH=$(echo "$MODEL_NAME" | tr '/' '_')
 
-# Attempt to source module commands for environment consistency
-if command -v module &> /dev/null; then
-    module purge
-    echo "Modules environment purged for clean venv usage."
-fi
-
 # --- 1. Setup Paths ---
 # Get the first available scratch directory
 SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
-if [ -z "$SCRATCH_ROOT" ]; then
-    echo "FATAL ERROR: Could not find scratch space directory."
-    exit 1
-fi
 
-# CRITICAL FIX: Switch to the directory where you submitted the job
-cd "$SLURM_SUBMIT_DIR" || exit 1
-
-# Results directory: same directory where job was submitted, under "results" folder
-RESULTS_DIR="$(pwd)/results"
-mkdir -p "$RESULTS_DIR"
-
-# Get the repository root relative to the submission directory
-if [ -f "run_math.py" ]; then
-    REPO_ROOT="$(pwd)"
-elif [ -f "../run_math.py" ]; then
-    REPO_ROOT="$(pwd)/.."
-else
-    echo "Error: Could not find run_math.py"
-    exit 1
-fi
-export PYTHONPATH="$PYTHONPATH:$REPO_ROOT/llm_experiments"
+RESULT_DIR="$HOME/truncated-transformer-reasoning/reasoning-with-sampling/results"
+mkdir -p "$RESULT_DIR"
 
 # Generate the full HF model path dynamically
 SUFFIX="keeplast"
@@ -75,122 +48,49 @@ echo "Running in: $(pwd)"
 echo "Repository root: $REPO_ROOT"
 echo "Temporary Scratch: $SCRATCH_ROOT"
 echo "Results Directory: $RESULTS_DIR"
-echo "Layer Index: ${LAYER_IDX} (will process batches 0-$(($NUM_BATCHES - 1)))"
+echo "Layer Index: ${LAYER_IDX}"
 echo "HF Model Path: ${HF_MODEL_PATH}"
 echo "Keep Last Layer: ${KEEP_LAST_LAYER}"
 
 # --- 2. Environment Setup (In Scratch) ---
-ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_hf_env"
-ENV_READY_FILE="$ENV_PATH/.READY"
-# PYTHON_BIN is the synchronization point for array tasks
-PYTHON_BIN="$ENV_PATH/bin/python"
-PIP_BIN="$ENV_PATH/bin/pip"
+ENV_PATH="$SCRATCH_ROOT/$USER/math_run_env"
 
-if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
-    echo "Task 0: Managing environment creation..."
+# Create environment if it doesn't exist (Self-Healing)
+if [ ! -d "$ENV_PATH" ]; then
+    echo "Creating virtual environment in scratch: $ENV_PATH"
+    python3 -m venv "$ENV_PATH"
+    source "$ENV_PATH/bin/activate"
+    pip install --upgrade pip
 
-    # 1. Handle VENV Creation
-    if [ ! -d "$ENV_PATH" ]; then
-        echo "Creating virtual environment in scratch: $ENV_PATH"
-        python3 -m venv "$ENV_PATH" || { echo "Failed to create venv."; exit 1; }
-    fi
-
-    # 2. Check and Handle Package Installation
-    if [ ! -f "$ENV_READY_FILE" ]; then
-        echo "--- ENVIRONMENT INSTALLATION START ---"
-        echo "Sentinel file ($ENV_READY_FILE) not found. Running/Re-running package installation."
-
-        # A. Clean up old binary if installation failed mid-way
-        if [ ! -f "$PYTHON_BIN" ]; then
-             echo "Python binary missing. Re-running environment creation."
-             rm -rf "$ENV_PATH"
-             python3 -m venv "$ENV_PATH" || { echo "Failed to recreate venv."; exit 1; }
-        fi
-
-        # B. Install dependencies (idempotent, fixes missing packages)
-        echo "Installing Python dependencies using $PIP_BIN (This may take a while)..."
-        "$PIP_BIN" install --upgrade pip || { echo "Failed to upgrade pip."; exit 1; }
-
-        # INSTALLS: Required packages for the script
-        # Running this again is idempotent and will fix missing packages reported by user
-        "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || { echo "Failed to install core packages."; exit 1; }
-
-        # C. Mark environment as fully installed and ready
-        touch "$ENV_READY_FILE"
-        echo "--- ENVIRONMENT INSTALLATION COMPLETE ---"
-    else
-        echo "Environment is marked as READY ($ENV_READY_FILE found). Proceeding without re-installing."
-    fi
-
+    # INSTALLS: Mapping your imports to pip packages
+    # torch, matplotlib, numpy, transformers, datasets, accelerate
+    pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
 else
-    # Non-zero tasks wait for Task 0 to create the venv and finish installation
-    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready (checking for $ENV_READY_FILE)..."
+    echo "Activating existing environment: $ENV_PATH"
+    source "$ENV_PATH/bin/activate"
 
-    WAIT_COUNT=0
-    # Wait for the .READY file to appear, which signals that Task 0 is done setting up.
-    while [ ! -f "$ENV_READY_FILE" ]; do
-        if [ "$WAIT_COUNT" -gt 60 ]; then
-            echo "ERROR: Timeout waiting for Task 0 to fully install environment. Exiting."
-            exit 1
-        fi
-        sleep 10
-        WAIT_COUNT=$((WAIT_COUNT + 1))
-    done
+    pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
 
-    # Final check: ensure the python binary is definitely present before using it
-    if [ ! -f "$PYTHON_BIN" ]; then
-        echo "FATAL ERROR: Ready file found, but Python binary is missing. Exiting."
-        exit 1
-    fi
-    echo "Environment is fully ready. Proceeding..."
+    # Optional: Ensure packages are present even in existing env
+    # pip install --upgrade torch transformers datasets matplotlib numpy accelerate
 fi
-
-# --- CRITICAL FIX: Export Python path for use below ---
-# Use the full, absolute path to the Python executable inside the environment.
-export PYTHON_EXEC="$PYTHON_BIN"
 
 # --- 3. Set Model Cache (In Scratch) ---
 echo "Setting Hugging Face cache location..."
 export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
 mkdir -p "$HF_HOME"
 
-# --- 4. Navigate to correct directory ---
-cd "$REPO_ROOT" || exit 1
-
-# --- 5. Run Script ---
-echo "--- Starting Main Benchmark Loop ---"
-
-# Build the command with optional keep_last_layer flag
-KEEP_FLAG=""
-if [ "$KEEP_LAST_LAYER" = true ]; then
-    KEEP_FLAG="--keep_last_layer"
-fi
-
 # Loop through all batches for this layer
-for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
-    echo "========================================="
-    echo "Processing Layer ${LAYER_IDX}, Batch ${BATCH_IDX}"
-    echo "HF Model Path: ${HF_MODEL_PATH}"
-    echo "========================================="
-
-    # Using the exported PYTHON_EXEC path guarantees we use the Python with installed packages
-    # Use 'time' to measure execution time for this batch (optional but useful)
-    time "$PYTHON_EXEC" run_math.py \
-      --batch_idx="${BATCH_IDX}" \
-      --mcmc_steps=10 \
-      --temperature=0.25 \
-      --seed="${SEED}" \
-      --model="${MODEL_NAME}" \
-      --layer_idx="${LAYER_IDX}" \
-      --hf_model_path="${HF_MODEL_PATH}" \
-      ${KEEP_FLAG} \
-      --save_str="${RESULTS_DIR}"
-
-    if [ $? -ne 0 ]; then
-        echo "WARNING: Batch ${BATCH_IDX} failed for layer ${LAYER_IDX}. Continuing to next batch."
-    else
-        echo "SUCCESS: Batch ${BATCH_IDX} finished."
-    fi
-done
+# Using the exported PYTHON_EXEC path guarantees we use the Python with installed packages
+# Use 'time' to measure execution time for this batch (optional but useful)
+python run_math.py \
+    --mcmc_steps=10 \
+    --temperature=0.25 \
+    --seed="${SEED}" \
+    --model="${MODEL_NAME}" \
+    --layer_idx="${LAYER_IDX}" \
+    --hf_model_path="${HF_MODEL_PATH}" \
+    --keep_last_layer \
+    --save_str="${RESULTS_DIR}"
 
 echo ">>> JOB COMPLETE for Layer ${LAYER_IDX} <<<"
