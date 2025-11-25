@@ -26,7 +26,7 @@ LAYER_IDX=$((SLURM_ARRAY_TASK_ID + LAYER_START))
 # Hugging Face repo configuration
 HF_REPO_BASE="khashazad/Qwen_Qwen2.5-Math-1.5B-truncated"
 MODEL_NAME="Qwen_Qwen2.5-Math-1.5B"
-KEEP_LAST_LAYER=true  # Set to false for no-last variants
+KEEP_LAST_LAYER=true # Set to false for no-last variants
 
 # Generate model name for path (replace / with _)
 MODEL_NAME_PATH=$(echo "$MODEL_NAME" | tr '/' '_')
@@ -52,9 +52,6 @@ RESULTS_DIR="$(pwd)/results"
 mkdir -p "$RESULTS_DIR"
 
 # Get the repository root relative to the submission directory
-# run_math.py is in reasoning-with-sampling/, same as this script
-# If running from reasoning-with-sampling/, REPO_ROOT is current directory
-# If running from scripts/, REPO_ROOT is parent
 if [ -f "run_math.py" ]; then
     REPO_ROOT="$(pwd)"
 elif [ -f "../run_math.py" ]; then
@@ -84,7 +81,8 @@ echo "Keep Last Layer: ${KEEP_LAST_LAYER}"
 
 # --- 2. Environment Setup (In Scratch) ---
 ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_hf_env"
-MARKER_FILE="$ENV_PATH/READY"
+# PYTHON_BIN is now the synchronization point
+PYTHON_BIN="$ENV_PATH/bin/python"
 
 if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
     echo "Task 0: Managing environment creation..."
@@ -92,32 +90,48 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
     if [ ! -d "$ENV_PATH" ]; then
         echo "Creating virtual environment in scratch: $ENV_PATH"
         python3 -m venv "$ENV_PATH"
+
+        # Temporarily activate for installation only
         source "$ENV_PATH/bin/activate"
         pip install --upgrade pip
 
         # INSTALLS: Required packages for the script
         pip install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
 
-        # Mark as ready
-        touch "$MARKER_FILE"
-    else
-        echo "Environment exists. checking readiness..."
-        source "$ENV_PATH/bin/activate"
-        if [ ! -f "$MARKER_FILE" ]; then
-             pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
-             touch "$MARKER_FILE"
-        fi
+        # Deactivate immediately
+        deactivate
 
-        pip install tqdm accelerate datasets huggingface_hub
+        echo "Environment successfully created and installed."
+    else
+        echo "Environment exists. Checking Python executable readiness..."
+
+        # If the environment directory exists but the python binary is missing (unlikely, but safe check)
+        if [ ! -f "$PYTHON_BIN" ]; then
+            echo "Python binary missing. Re-running environment creation."
+            # Remove partial environment and start over
+            rm -rf "$ENV_PATH"
+            python3 -m venv "$ENV_PATH"
+            source "$ENV_PATH/bin/activate"
+            pip install --upgrade pip
+            pip install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
+            deactivate
+        else
+            echo "Environment is ready. Proceeding."
+        fi
     fi
 else
-    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready..."
-    while [ ! -f "$MARKER_FILE" ]; do
+    # Non-zero tasks wait until the Python binary is created by Task 0
+    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready (checking for $PYTHON_BIN)..."
+    while [ ! -f "$PYTHON_BIN" ]; do
         sleep 10
     done
-    echo "Environment is ready. Activating..."
-    source "$ENV_PATH/bin/activate"
+    echo "Environment is ready. Proceeding..."
 fi
+
+# --- CRITICAL FIX: Export Python path for use below ---
+# Use the full, absolute path to the Python executable inside the environment.
+export PYTHON_EXEC="$PYTHON_BIN"
+
 
 # --- 3. Set Model Cache (In Scratch) ---
 export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
@@ -142,7 +156,8 @@ for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
     echo "HF Model Path: ${HF_MODEL_PATH}"
     echo "========================================="
 
-    python run_math.py \
+    # CRITICAL CHANGE: Use the exported PYTHON_EXEC path instead of just 'python'
+    "$PYTHON_EXEC" run_math.py \
       --batch_idx="${BATCH_IDX}" \
       --mcmc_steps=10 \
       --temperature=0.25 \
