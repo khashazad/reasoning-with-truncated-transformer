@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:rtx_a4000:1
 #SBATCH --array=0-1
 #SBATCH --output=slurm_jobs/%a.out
-#SBATCH --error=slurm_jobs/trunc_ps_math_hf_%a.err
+#SBATCH --error=slurm_jobs/%a.err
 #SBATCH --mail-user=khashayar1924@gmail.com
 #SBATCH --mail-type=ALL
 
@@ -115,6 +115,7 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
             "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
         else
             echo "Environment is ready. Proceeding."
+            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
         fi
     fi
 else
