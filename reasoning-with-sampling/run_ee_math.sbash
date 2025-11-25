@@ -5,12 +5,11 @@
 #SBATCH -c 4
 #SBATCH --mem=16GB
 #SBATCH --gres=gpu:rtx_a4000:1
-#SBATCH --array=0-4
 #SBATCH --output=ee_ps_math_%a.out
 #SBATCH --error=ee_ps_math_%a.err
 
 # --- map array id -> (batch_idx) ---
-BATCH_IDX=${SLURM_ARRAY_TASK_ID}
+BATCH_IDX=0
 SEED=42
 
 # Ensure module command is available
@@ -45,43 +44,25 @@ echo "Permanent Results: $RESULT_DIR"
 echo "Batch Index: ${BATCH_IDX}"
 
 # --- 2. Environment Setup (In Scratch) ---
-ENV_PATH="$SCRATCH_ROOT/$USER/ee_ps_math_env"
-MARKER_FILE="$ENV_PATH/READY"
 
-if [ "$BATCH_IDX" -eq 0 ]; then
-    echo "Task 0: Managing environment creation..."
-    
-    # Clean partial install if needed (optional, but safe)
-    # rm -rf "$ENV_PATH" 
-    
-    if [ ! -d "$ENV_PATH" ]; then
-        echo "Creating virtual environment in scratch: $ENV_PATH"
-        python3 -m venv "$ENV_PATH"
-        source "$ENV_PATH/bin/activate"
-        pip install --upgrade pip
-        
-        # INSTALLS: Required packages for the script
-        pip install torch transformers pandas tqdm accelerate datasets
-        
-        # Mark as ready
-        touch "$MARKER_FILE"
-    else
-        echo "Environment exists. checking readiness..."
-        # Ensure it's ready if it existed from a previous run
-        source "$ENV_PATH/bin/activate"
-        if [ ! -f "$MARKER_FILE" ]; then
-             # In case it exists but wasn't fully ready (previous crash?)
-             pip install torch transformers pandas tqdm accelerate
-             touch "$MARKER_FILE"
-        fi
-    fi
-else
-    echo "Task ${BATCH_IDX}: Waiting for environment to be ready..."
-    while [ ! -f "$MARKER_FILE" ]; do
-        sleep 10
-    done
-    echo "Environment is ready. Activating..."
+# --- 2. Environment Setup (In Scratch) ---
+ENV_PATH="$SCRATCH_ROOT/$USER/logitlens2_env"
+
+# Create environment if it doesn't exist (Self-Healing)
+if [ ! -d "$ENV_PATH" ]; then
+    echo "Creating virtual environment in scratch: $ENV_PATH"
+    python3 -m venv "$ENV_PATH"
     source "$ENV_PATH/bin/activate"
+    pip install --upgrade pip
+
+    # INSTALLS: Mapping your imports to pip packages
+    # torch, matplotlib, numpy, transformers, datasets, accelerate
+    pip install torch transformers pandas tqdm accelerate datasets
+else
+    echo "Activating existing environment: $ENV_PATH"
+    source "$ENV_PATH/bin/activate"
+
+    pip install torch transformers pandas tqdm accelerate datasets
 fi
 
 # --- 3. Set Model Cache (In Scratch) ---
