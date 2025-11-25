@@ -26,12 +26,13 @@ if [ ! -d "$ENV_PATH" ]; then
     source "$ENV_PATH/bin/activate"
     pip install --upgrade pip
 
-    pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
+    # pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
 else
     echo "Activating existing environment: $ENV_PATH"
     source "$ENV_PATH/bin/activate"
 
-    pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
+    # pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
 fi
 
+echo "running script"
 python run_trunc_math.py
