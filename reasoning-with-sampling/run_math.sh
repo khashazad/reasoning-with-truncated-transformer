@@ -31,12 +31,11 @@ ENV_PATH="$HOME/math_run_env"
 if [ ! -d "$ENV_PATH" ]; then
     python3 -m venv "$ENV_PATH"
     source "$ENV_PATH/bin/activate"
-    pip install --upgrade pip
-    pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
 else
     source "$ENV_PATH/bin/activate"
-    pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
 fi
+
+pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
 
 python run_math.py \
     --mcmc_steps=10 \

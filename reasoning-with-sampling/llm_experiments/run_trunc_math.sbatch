@@ -18,21 +18,23 @@ echo "Running in: $(pwd)"
 
 ENV_PATH="$HOME/math_trunc_run_env"
 
+PYTHON_INTERPRETER="$ENV_PATH/bin/python"
+
+PIP_EXECUTABLE="$ENV_PATH/bin/pip"
+
 SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
 
 if [ ! -d "$ENV_PATH" ]; then
-    echo "Creating virtual environment in scratch: $ENV_PATH"
+    echo "Creating virtual environment at $ENV_PATH..."
     python3 -m venv "$ENV_PATH"
-    source "$ENV_PATH/bin/activate"
-    pip install --upgrade pip
-
-    # pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
 else
-    echo "Activating existing environment: $ENV_PATH"
-    source "$ENV_PATH/bin/activate"
-
-    # pip install torch transformers pandas accelerate datasets huggingface_hub tqdm
+    echo "Virtual environment already exists at $ENV_PATH."
 fi
 
-echo "running script"
-python run_trunc_math.py
+echo "Installing dependencies using $PIP_EXECUTABLE..."
+
+"$PIP_EXECUTABLE" install torch transformers pandas tqdm accelerate datasets huggingface_hub
+
+echo "Running script with $PYTHON_INTERPRETER..."
+
+"$PYTHON_INTERPRETER" run_trunc_math.py
