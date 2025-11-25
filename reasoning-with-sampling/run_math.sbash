@@ -1,0 +1,158 @@
+#!/bin/bash --login
+#SBATCH --job-name=trunc_ps_math_hf
+#SBATCH --partition=gpunodes
+#SBATCH -t 0-23:59
+#SBATCH -c 4
+#SBATCH --mem=24GB
+#SBATCH --gres=gpu:rtx_4090:1
+#SBATCH --array=0-7
+#SBATCH --output=trunc_ps_math_hf_%a.out
+#SBATCH --error=trunc_ps_math_hf_%a.err
+
+# --- Configuration ---
+# Layer range: layers 20-27 (8 layers)
+# Each array task handles one layer and loops through all batches
+LAYER_START=20
+LAYER_END=27
+NUM_BATCHES=5
+SEED=42
+
+# --- map array id -> layer_idx ---
+# Array 0-7 maps to layers 20-27
+LAYER_IDX=$((SLURM_ARRAY_TASK_ID + LAYER_START))
+
+# Hugging Face repo configuration
+HF_REPO_BASE="khashazad/Qwen_Qwen2.5-Math-1.5B-truncated"
+MODEL_NAME="Qwen_Qwen2.5-Math-1.5B"
+KEEP_LAST_LAYER=true  # Set to false for no-last variants
+
+# Generate model name for path (replace / with _)
+MODEL_NAME_PATH=$(echo "$MODEL_NAME" | tr '/' '_')
+
+# Ensure module command is available
+if [ -f /etc/profile ]; then
+    source /etc/profile
+fi
+# Some systems use a modules.sh file
+if [ -f /etc/profile.d/modules.sh ]; then
+    source /etc/profile.d/modules.sh
+fi
+
+# --- 1. Setup Paths ---
+# SCRATCH: For heavy temporary files (Environments, Models)
+SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
+
+# CRITICAL FIX: Switch to the directory where you submitted the job
+cd "$SLURM_SUBMIT_DIR" || exit 1
+
+# Results directory: same directory where job was submitted, under "results" folder
+RESULTS_DIR="$(pwd)/results"
+mkdir -p "$RESULTS_DIR"
+
+# Get the repository root relative to the submission directory
+# run_math.py is in reasoning-with-sampling/, same as this script
+# If running from reasoning-with-sampling/, REPO_ROOT is current directory
+# If running from scripts/, REPO_ROOT is parent
+if [ -f "run_math.py" ]; then
+    REPO_ROOT="$(pwd)"
+elif [ -f "../run_math.py" ]; then
+    REPO_ROOT="$(pwd)/.."
+else
+    echo "Error: Could not find run_math.py"
+    exit 1
+fi
+export PYTHONPATH="$PYTHONPATH:$REPO_ROOT/llm_experiments"
+
+# Generate the full HF model path dynamically
+SUFFIX="keeplast"
+if [ "$KEEP_LAST_LAYER" != true ]; then
+    SUFFIX="no-last"
+fi
+HF_MODEL_PATH="${HF_REPO_BASE}/${MODEL_NAME_PATH}/layer${LAYER_IDX}_${SUFFIX}"
+
+echo ">>> CONFIGURATION <<<"
+echo "Running in: $(pwd)"
+echo "Repository root: $REPO_ROOT"
+echo "Temporary Scratch: $SCRATCH_ROOT"
+echo "Results Directory: $RESULTS_DIR"
+echo "Layer Index: ${LAYER_IDX} (will process batches 0-$(($NUM_BATCHES - 1)))"
+echo "HF Repo Base: ${HF_REPO_BASE}"
+echo "HF Model Path: ${HF_MODEL_PATH}"
+echo "Keep Last Layer: ${KEEP_LAST_LAYER}"
+
+# --- 2. Environment Setup (In Scratch) ---
+ENV_PATH="$SCRATCH_ROOT/$USER/trunc_ps_math_hf_env"
+MARKER_FILE="$ENV_PATH/READY"
+
+if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
+    echo "Task 0: Managing environment creation..."
+
+    if [ ! -d "$ENV_PATH" ]; then
+        echo "Creating virtual environment in scratch: $ENV_PATH"
+        python3 -m venv "$ENV_PATH"
+        source "$ENV_PATH/bin/activate"
+        pip install --upgrade pip
+
+        # INSTALLS: Required packages for the script
+        pip install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
+
+        # Mark as ready
+        touch "$MARKER_FILE"
+    else
+        echo "Environment exists. checking readiness..."
+        source "$ENV_PATH/bin/activate"
+        if [ ! -f "$MARKER_FILE" ]; then
+             pip install torch transformers pandas tqdm accelerate datasets huggingface_hub
+             touch "$MARKER_FILE"
+        fi
+    fi
+else
+    echo "Task ${SLURM_ARRAY_TASK_ID}: Waiting for environment to be ready..."
+    while [ ! -f "$MARKER_FILE" ]; do
+        sleep 10
+    done
+    echo "Environment is ready. Activating..."
+    source "$ENV_PATH/bin/activate"
+fi
+
+# --- 3. Set Model Cache (In Scratch) ---
+export HF_HOME="$SCRATCH_ROOT/$USER/hf_cache"
+mkdir -p "$HF_HOME"
+
+# --- 4. Navigate to correct directory ---
+cd "$REPO_ROOT" || exit 1
+
+# --- 5. Run Script ---
+echo "Starting Truncated-PS Benchmark for Layer ${LAYER_IDX}..."
+
+# Build the command with optional keep_last_layer flag
+KEEP_FLAG=""
+if [ "$KEEP_LAST_LAYER" = true ]; then
+    KEEP_FLAG="--keep_last_layer"
+fi
+
+# Loop through all batches for this layer
+for BATCH_IDX in $(seq 0 $((NUM_BATCHES - 1))); do
+    echo "========================================="
+    echo "Processing Layer ${LAYER_IDX}, Batch ${BATCH_IDX}"
+    echo "HF Model Path: ${HF_MODEL_PATH}"
+    echo "========================================="
+
+    python run_math.py \
+      --batch_idx="${BATCH_IDX}" \
+      --mcmc_steps=10 \
+      --temperature=0.25 \
+      --seed="${SEED}" \
+      --model="${MODEL_NAME}" \
+      --layer_idx="${LAYER_IDX}" \
+      --hf_model_path="${HF_MODEL_PATH}" \
+      ${KEEP_FLAG} \
+      --save_str="${RESULTS_DIR}"
+
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Batch ${BATCH_IDX} failed for layer ${LAYER_IDX}"
+        # Continue with next batch instead of exiting
+    fi
+done
+
+echo ">>> JOB COMPLETE for Layer ${LAYER_IDX} <<<"
