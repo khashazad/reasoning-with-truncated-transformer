@@ -40,6 +40,7 @@ fi
 
 echo "Installing dependencies using $PIP_EXECUTABLE..."
 
+"$PIP_EXECUTABLE" install --upgrade pip
 "$PIP_EXECUTABLE" install torch transformers pandas tqdm accelerate datasets huggingface_hub
 
 echo "Running script with $PYTHON_INTERPRETER..."
