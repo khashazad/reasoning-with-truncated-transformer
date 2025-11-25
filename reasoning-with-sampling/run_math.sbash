@@ -112,10 +112,10 @@ if [ "$SLURM_ARRAY_TASK_ID" -eq 0 ]; then
             python3 -m venv "$ENV_PATH"
             # Re-install using direct pip path
             "$PIP_BIN" install --upgrade pip || exit 1
-            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
+            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub
         else
             echo "Environment is ready. Proceeding."
-            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub || exit 1
+            "$PIP_BIN" install torch transformers pandas tqdm accelerate datasets huggingface_hub
         fi
     fi
 else
