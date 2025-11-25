@@ -16,13 +16,20 @@ mkdir -p "$RESULT_DIR"
 echo ">>> CONFIGURATION <<<"
 echo "Running in: $(pwd)"
 
-ENV_PATH="$HOME/math_trunc_run_env"
+SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
+
+if [ -z "$SCRATCH_ROOT" ]; then
+    echo "ERROR: Could not find a scratch space directory." >&2
+    exit 1
+fi
+echo "Using scratch space: $SCRATCH_ROOT"
+
+ENV_NAME="math_trunc_run_env"
+ENV_PATH="$SCRATCH_ROOT/$ENV_NAME"
 
 PYTHON_INTERPRETER="$ENV_PATH/bin/python"
 
 PIP_EXECUTABLE="$ENV_PATH/bin/pip"
-
-SCRATCH_ROOT=$(ls -d /scratch/scratch-space/expires-* | head -n 1)
 
 if [ ! -d "$ENV_PATH" ]; then
     echo "Creating virtual environment at $ENV_PATH..."
