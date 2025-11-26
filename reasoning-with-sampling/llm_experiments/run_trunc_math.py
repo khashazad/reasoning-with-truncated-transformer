@@ -72,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
-    parser.add_argument("--layer_idx", action = "store", type = int, default =22, help="Truncate model to this layer index (0-indexed)")
+    parser.add_argument("--layer_idx", action = "store", type = int, default =24, help="Truncate model to this layer index (0-indexed)")
 
     args = parser.parse_args()
 
