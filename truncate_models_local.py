@@ -4,6 +4,7 @@ import os
 import torch
 import transformers
 
+
 def layer_container(model):
     if hasattr(model, "model") and hasattr(model.model, "layers"):
         return model.model.layers
