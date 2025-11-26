@@ -1,0 +1,7 @@
+Method,Model,Layer,Total Questions,Correct,Accuracy
+Truncation + Last Layer,Qwen_Qwen2.5-Math-1.5B,22,20,0,0.0%
+Truncation + Last Layer,Qwen_Qwen2.5-Math-1.5B,25,20,6,30.0%
+Truncation + Last Layer,Qwen_Qwen2.5-Math-1.5B,26,20,9,45.0%
+Truncation + Last Layer,Qwen_Qwen2.5-Math-1.5B,100,20,10,50.0%
+Truncation Only,Qwen_Qwen2.5-Math-7B,21,500,0,0.0%
+Truncation Only,Qwen_Qwen2.5-Math-7B,23,300,0,0.0%

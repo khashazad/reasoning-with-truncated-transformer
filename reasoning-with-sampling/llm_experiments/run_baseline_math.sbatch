@@ -1,27 +1,28 @@
 #!/bin/bash --login
-#SBATCH --job-name=trunc_ps_math_hf_2
+#SBATCH --job-name=baseline_math
 #SBATCH --partition=gpunodes
-#SBATCH -t 0-23:59
+#SBATCH -t 0-12:00
 #SBATCH -c 4
 #SBATCH --mem=24GB
 #SBATCH --gres=gpu:rtx_a2000:1
-#SBATCH --array=0-2
-#SBATCH --output=slurm_jobs/%A_%a.out
-#SBATCH --error=slurm_jobs/%A_%a.err
+#SBATCH --array=0-3
+#SBATCH --output=slurm_jobs/baseline_%A_%a.out
+#SBATCH --error=slurm_jobs/baseline_%A_%a.err
 #SBATCH --mail-user=khashayar1924@gmail.com
 #SBATCH --mail-type=ALL
 
 # Map array task ID to layer_idx:
-# 0 -> layer 25
-# 1 -> layer 26
-# 2 -> layer 100 (>= total layers, so no truncation = full model)
-LAYER_OPTIONS=(25 26 100)
+# 0 -> layer 22
+# 1 -> layer 25
+# 2 -> layer 26
+# 3 -> layer 100 (full model)
+LAYER_OPTIONS=(22 25 26 100)
 LAYER_IDX=${LAYER_OPTIONS[$SLURM_ARRAY_TASK_ID]}
 
-RESULT_DIR="./results"
+RESULT_DIR="./results_baseline"
 mkdir -p "$RESULT_DIR"
 
-echo ">>> CONFIGURATION <<<"
+echo ">>> BASELINE CONFIGURATION <<<"
 echo "Running in: $(pwd)"
 echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Layer Index: $LAYER_IDX"
@@ -36,10 +37,11 @@ echo "Using scratch space: $SCRATCH_ROOT"
 
 ENV_NAME="math_trunc_run_env_ganni"
 ENV_PATH="$SCRATCH_ROOT/$ENV_NAME"
-# --- ADD: Set PYTHONPATH ---
+
+# Set PYTHONPATH
 export PYTHONPATH="$PYTHONPATH:$(pwd)"
 
-# --- ADD: Set HF_HOME for model cache ---
+# Set HF_HOME for model cache
 export HF_HOME="$SCRATCH_ROOT/hf_cache"
 mkdir -p "$HF_HOME"
 
@@ -48,14 +50,20 @@ if [ ! -d "$ENV_PATH" ]; then
     python3 -m venv "$ENV_PATH"
 fi
 
-# --- ADD: Activate the environment (CRITICAL FIX) ---
+# Activate the environment
 source "$ENV_PATH/bin/activate"
 
 echo "Installing dependencies..."
 pip install --upgrade pip
 pip install --no-cache-dir torch transformers pandas tqdm accelerate datasets huggingface_hub
 
-echo "Running script with layer_idx=$LAYER_IDX..."
-python run_trunc_math.py --layer_idx=$LAYER_IDX
+echo "Running BASELINE script with layer_idx=$LAYER_IDX..."
+python run_baseline_math.py \
+    --layer_idx=$LAYER_IDX \
+    --model="Qwen/Qwen2.5-Math-1.5B" \
+    --temperature=0.5 \
+    --batch_idx=0 \
+    --save_str="results_baseline"
 
 echo ">>> JOB COMPLETE <<<"
+
