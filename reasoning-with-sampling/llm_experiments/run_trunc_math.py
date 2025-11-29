@@ -69,6 +69,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", action = "store", default = "MATH", type = str)
     parser.add_argument("--cot", action = "store", type = bool, default = False)
     parser.add_argument("--mcmc_steps", action = "store", type = int, default = 10)
+    parser.add_argument("--max_new_tokens", action = "store", type = int, default = 1024, help="Maximum new tokens to generate")
     parser.add_argument("--device", action = "store", type = str, dest = "device", default = "cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", action = "store", type = int, default = 0)
     parser.add_argument("--seed", action = "store", type = int, default = 0)
@@ -91,9 +92,12 @@ if __name__ == "__main__":
     save_str = os.path.join(args.save_str, model_str.replace("/", "_"))
     os.makedirs(save_str, exist_ok=True)
 
+    max_new_tokens = args.max_new_tokens
+
     print(f"Model: {model_str}")
     print(f"Device: {device}")
     print(f"MCMC Steps: {mcmc_steps}")
+    print(f"Max New Tokens: {max_new_tokens}")
     print(f"Truncating at Layer: {layer_idx}")
     print(f"Keep Last Layer: {keep_last_layer}")
 
@@ -134,7 +138,7 @@ if __name__ == "__main__":
 
         # Using standard mcmc_power_samp on the truncated model
         mcmc_out, _, _, accept_ratio = mcmc_power_samp(
-            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=512, block_num=16
+            autoreg_sampler, prefx, temp, mcmc_steps, max_new_tokens=max_new_tokens, block_num=16
         )
 
         mcmc_completion = tokenizer.decode(torch.tensor(mcmc_out[len(prefx):], dtype=torch.long).cpu(), skip_special_tokens=True)

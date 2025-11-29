@@ -275,6 +275,10 @@ def main():
                        help="Path to baseline results folder (no MCMC)")
     parser.add_argument("--output_dir", type=str, default="analysis_output",
                        help="Output directory for plots and tables")
+    parser.add_argument("--skip_truncated", action="store_true", default=True,
+                       help="Skip the results_truncated folder (7B model)")
+    parser.add_argument("--include_truncated", action="store_true",
+                       help="Include the results_truncated folder (7B model)")
     args = parser.parse_args()
     
     output_dir = Path(args.output_dir)
@@ -297,31 +301,40 @@ def main():
     else:
         print(f"Warning: {results_path} not found")
     
-    # Analyze results_truncated folder (MCMC + truncation only)
-    results_truncated_path = Path(args.results_truncated)
-    if results_truncated_path.exists():
-        print(f"\nAnalyzing: {results_truncated_path}")
-        results_trunc = analyze_folder(results_truncated_path, method_name="MCMC + Truncation Only")
-        if results_trunc:
-            print_detailed_results(results_trunc, "Results: MCMC + Truncation Only")
-            aggregated_trunc = aggregate_by_layer(results_trunc)
-            print_aggregated_results(aggregated_trunc, "Results: MCMC + Truncation Only")
-            all_results.extend(results_trunc)
-            all_aggregated.extend(aggregated_trunc)
+    # Analyze results_truncated folder (MCMC + truncation only) - 7B model
+    # Skip by default unless --include_truncated is specified
+    if args.include_truncated:
+        results_truncated_path = Path(args.results_truncated)
+        if results_truncated_path.exists():
+            print(f"\nAnalyzing: {results_truncated_path}")
+            results_trunc = analyze_folder(results_truncated_path, method_name="MCMC + Truncation Only")
+            if results_trunc:
+                print_detailed_results(results_trunc, "Results: MCMC + Truncation Only")
+                aggregated_trunc = aggregate_by_layer(results_trunc)
+                print_aggregated_results(aggregated_trunc, "Results: MCMC + Truncation Only")
+                all_results.extend(results_trunc)
+                all_aggregated.extend(aggregated_trunc)
+        else:
+            print(f"Warning: {results_truncated_path} not found")
     else:
-        print(f"Warning: {results_truncated_path} not found")
+        print(f"\nSkipping results_truncated (7B model). Use --include_truncated to include.")
     
-    # Analyze baseline results folder (no MCMC)
+    # Analyze baseline results folder (no MCMC) - only full model (layer >= 100)
     results_baseline_path = Path(args.results_baseline)
     if results_baseline_path.exists():
-        print(f"\nAnalyzing: {results_baseline_path}")
+        print(f"\nAnalyzing: {results_baseline_path} (full model only)")
         results_baseline = analyze_folder(results_baseline_path, method_name="Baseline (No MCMC)")
         if results_baseline:
-            print_detailed_results(results_baseline, "Results: Baseline (No MCMC)")
-            aggregated_baseline = aggregate_by_layer(results_baseline)
-            print_aggregated_results(aggregated_baseline, "Results: Baseline (No MCMC)")
-            all_results.extend(results_baseline)
-            all_aggregated.extend(aggregated_baseline)
+            # Filter to only include full model (layer >= 100)
+            results_baseline_full = [r for r in results_baseline if r["layer"] >= 100]
+            if results_baseline_full:
+                print_detailed_results(results_baseline_full, "Results: Baseline (No MCMC) - Full Model Only")
+                aggregated_baseline = aggregate_by_layer(results_baseline_full)
+                print_aggregated_results(aggregated_baseline, "Results: Baseline (No MCMC) - Full Model Only")
+                all_results.extend(results_baseline_full)
+                all_aggregated.extend(aggregated_baseline)
+            else:
+                print("No full model baseline results found.")
     else:
         print(f"Note: {results_baseline_path} not found (run baseline experiments first)")
     
