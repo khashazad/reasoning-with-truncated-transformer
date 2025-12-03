@@ -265,20 +265,34 @@ def create_summary_table(all_aggregated, output_path):
     return df
 
 
+def sort_results(all_aggregated):
+    """Sort results: 1.5B MCMC -> 1.5B Baseline -> 7B MCMC -> 7B Baseline, then by layer."""
+    def sort_key(r):
+        # Model size: 1.5B = 0, 7B = 1
+        model_size = 0 if "1.5B" in r["model"] else 1
+        # Method: MCMC = 0, Baseline = 1
+        is_baseline = 1 if "Baseline" in r["method"] else 0
+        # Layer
+        layer = r["layer"]
+        return (model_size, is_baseline, layer)
+    
+    return sorted(all_aggregated, key=sort_key)
+
+
 def main():
     parser = argparse.ArgumentParser(description="Analyze truncated model results")
-    parser.add_argument("--results", type=str, default="results",
-                       help="Path to results folder (MCMC + truncation + last layer)")
-    parser.add_argument("--results_truncated", type=str, default="results_truncated",
-                       help="Path to results_truncated folder (MCMC + truncation only)")
-    parser.add_argument("--results_baseline", type=str, default="results_baseline",
-                       help="Path to baseline results folder (no MCMC)")
+    parser.add_argument("--results_mcmc_1_5B", type=str, default="results_mcmc_1.5B",
+                       help="Path to results_mcmc_1.5B folder (1.5B MCMC runs)")
+    parser.add_argument("--results_baseline_1_5B", type=str, default="results_baseline_1.5B",
+                       help="Path to 1.5B baseline results folder (no MCMC)")
+    parser.add_argument("--results_mcmc_7B", type=str, default="results_mcmc_7B",
+                       help="Path to results_mcmc_7B folder (7B MCMC runs)")
+    parser.add_argument("--results_baseline_7B", type=str, default="results_baseline_7B",
+                       help="Path to 7B baseline results folder (no MCMC)")
     parser.add_argument("--output_dir", type=str, default="analysis_output",
                        help="Output directory for plots and tables")
-    parser.add_argument("--skip_truncated", action="store_true", default=True,
-                       help="Skip the results_truncated folder (7B model)")
-    parser.add_argument("--include_truncated", action="store_true",
-                       help="Include the results_truncated folder (7B model)")
+    parser.add_argument("--include_old_results", action="store_true",
+                       help="Include old results/ folder (only 20 questions)")
     args = parser.parse_args()
     
     output_dir = Path(args.output_dir)
@@ -287,56 +301,68 @@ def main():
     all_results = []
     all_aggregated = []
     
-    # Analyze results folder (MCMC + truncation + keep last layer)
-    results_path = Path(args.results)
-    if results_path.exists():
-        print(f"\nAnalyzing: {results_path}")
-        results = analyze_folder(results_path, method_name="MCMC + Trunc + Last Layer")
-        if results:
-            print_detailed_results(results, "Results: MCMC + Truncation + Last Layer")
-            aggregated = aggregate_by_layer(results)
-            print_aggregated_results(aggregated, "Results: MCMC + Truncation + Last Layer")
-            all_results.extend(results)
-            all_aggregated.extend(aggregated)
-    else:
-        print(f"Warning: {results_path} not found")
+    # ===== 1.5B MODEL RESULTS =====
     
-    # Analyze results_truncated folder (MCMC + truncation only) - 7B model
-    # Skip by default unless --include_truncated is specified
-    if args.include_truncated:
-        results_truncated_path = Path(args.results_truncated)
-        if results_truncated_path.exists():
-            print(f"\nAnalyzing: {results_truncated_path}")
-            results_trunc = analyze_folder(results_truncated_path, method_name="MCMC + Truncation Only")
-            if results_trunc:
-                print_detailed_results(results_trunc, "Results: MCMC + Truncation Only")
-                aggregated_trunc = aggregate_by_layer(results_trunc)
-                print_aggregated_results(aggregated_trunc, "Results: MCMC + Truncation Only")
-                all_results.extend(results_trunc)
-                all_aggregated.extend(aggregated_trunc)
-        else:
-            print(f"Warning: {results_truncated_path} not found")
+    # 1. MCMC 1.5B (layers 21-26, 100 questions each)
+    results_mcmc_1_5b_path = Path(args.results_mcmc_1_5B)
+    if results_mcmc_1_5b_path.exists():
+        print(f"\n[1.5B MCMC] Analyzing: {results_mcmc_1_5b_path}")
+        results_1_5b = analyze_folder(results_mcmc_1_5b_path, method_name="MCMC 1.5B")
+        if results_1_5b:
+            print_detailed_results(results_1_5b, "Results: MCMC 1.5B (Layers 21-26)")
+            aggregated_1_5b = aggregate_by_layer(results_1_5b)
+            print_aggregated_results(aggregated_1_5b, "Results: MCMC 1.5B (Layers 21-26)")
+            all_results.extend(results_1_5b)
+            all_aggregated.extend(aggregated_1_5b)
     else:
-        print(f"\nSkipping results_truncated (7B model). Use --include_truncated to include.")
+        print(f"Note: {results_mcmc_1_5b_path} not found")
     
-    # Analyze baseline results folder (no MCMC) - only full model (layer >= 100)
-    results_baseline_path = Path(args.results_baseline)
-    if results_baseline_path.exists():
-        print(f"\nAnalyzing: {results_baseline_path} (full model only)")
-        results_baseline = analyze_folder(results_baseline_path, method_name="Baseline (No MCMC)")
-        if results_baseline:
-            # Filter to only include full model (layer >= 100)
-            results_baseline_full = [r for r in results_baseline if r["layer"] >= 100]
-            if results_baseline_full:
-                print_detailed_results(results_baseline_full, "Results: Baseline (No MCMC) - Full Model Only")
-                aggregated_baseline = aggregate_by_layer(results_baseline_full)
-                print_aggregated_results(aggregated_baseline, "Results: Baseline (No MCMC) - Full Model Only")
-                all_results.extend(results_baseline_full)
-                all_aggregated.extend(aggregated_baseline)
-            else:
-                print("No full model baseline results found.")
+    # 2. Baseline 1.5B (layers 21-26 + full model, 100 questions each)
+    results_baseline_1_5b_path = Path(args.results_baseline_1_5B)
+    if results_baseline_1_5b_path.exists():
+        print(f"\n[1.5B Baseline] Analyzing: {results_baseline_1_5b_path}")
+        results_baseline_1_5b = analyze_folder(results_baseline_1_5b_path, method_name="Baseline 1.5B")
+        if results_baseline_1_5b:
+            print_detailed_results(results_baseline_1_5b, "Results: Baseline 1.5B")
+            aggregated_baseline_1_5b = aggregate_by_layer(results_baseline_1_5b)
+            print_aggregated_results(aggregated_baseline_1_5b, "Results: Baseline 1.5B")
+            all_results.extend(results_baseline_1_5b)
+            all_aggregated.extend(aggregated_baseline_1_5b)
     else:
-        print(f"Note: {results_baseline_path} not found (run baseline experiments first)")
+        print(f"Note: {results_baseline_1_5b_path} not found")
+    
+    # ===== 7B MODEL RESULTS =====
+    
+    # 3. MCMC 7B (layers 21-26, 100 questions each)
+    results_mcmc_7b_path = Path(args.results_mcmc_7B)
+    if results_mcmc_7b_path.exists():
+        print(f"\n[7B MCMC] Analyzing: {results_mcmc_7b_path}")
+        results_7b = analyze_folder(results_mcmc_7b_path, method_name="MCMC 7B")
+        if results_7b:
+            print_detailed_results(results_7b, "Results: MCMC 7B (Layers 21-26)")
+            aggregated_7b = aggregate_by_layer(results_7b)
+            print_aggregated_results(aggregated_7b, "Results: MCMC 7B (Layers 21-26)")
+            all_results.extend(results_7b)
+            all_aggregated.extend(aggregated_7b)
+    else:
+        print(f"Note: {results_mcmc_7b_path} not found")
+    
+    # 4. Baseline 7B (layers 21-26 + full model, 100 questions each)
+    results_baseline_7b_path = Path(args.results_baseline_7B)
+    if results_baseline_7b_path.exists():
+        print(f"\n[7B Baseline] Analyzing: {results_baseline_7b_path}")
+        results_baseline_7b = analyze_folder(results_baseline_7b_path, method_name="Baseline 7B")
+        if results_baseline_7b:
+            print_detailed_results(results_baseline_7b, "Results: Baseline 7B")
+            aggregated_baseline_7b = aggregate_by_layer(results_baseline_7b)
+            print_aggregated_results(aggregated_baseline_7b, "Results: Baseline 7B")
+            all_results.extend(results_baseline_7b)
+            all_aggregated.extend(aggregated_baseline_7b)
+    else:
+        print(f"Note: {results_baseline_7b_path} not found")
+    
+    # Sort results for proper display order
+    all_aggregated = sort_results(all_aggregated)
     
     # Generate visualizations
     if all_aggregated:

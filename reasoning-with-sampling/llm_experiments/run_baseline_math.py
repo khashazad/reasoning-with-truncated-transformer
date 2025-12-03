@@ -72,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--temperature", type=float, default=0.5)
     parser.add_argument("--dataset", type=str, default="MATH")
     parser.add_argument("--cot", type=bool, default=False)
-    parser.add_argument("--max_new_tokens", type=int, default=512)
+    parser.add_argument("--max_new_tokens", type=int, default=1024)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else 'cpu')
     parser.add_argument("--batch_idx", type=int, default=0)
     parser.add_argument("--seed", type=int, default=0)
