@@ -1,41 +1,42 @@
 #!/bin/bash --login
-#SBATCH --job-name=baseline_math_100q
+#SBATCH --job-name=mcmc_1.5B
 #SBATCH --partition=gpunodes
-#SBATCH -t 0-06:00
+#SBATCH -t 0-23:59
 #SBATCH -c 4
 #SBATCH --mem=24GB
 #SBATCH --gres=gpu:rtx_a2000:1
-#SBATCH --array=0-19
-#SBATCH --output=slurm_jobs/baseline_%A_%a.out
-#SBATCH --error=slurm_jobs/baseline_%A_%a.err
-#SBATCH --mail-user=khashayar1924@gmail.com
+#SBATCH --array=0-29
+#SBATCH --output=slurm_jobs/mcmc_1.5B_%A_%a.out
+#SBATCH --error=slurm_jobs/mcmc_1.5B_%A_%a.err
+#SBATCH --mail-user=email@email.com
 #SBATCH --mail-type=ALL
 
-# 100 questions per layer: 4 layer configs x 5 batches = 20 jobs
-# Array index 0-19 maps to (layer_config, batch_idx):
-#   task_id = layer_config_idx * 5 + batch_idx
+# Qwen2.5-Math-1.5B: Layers 21-26, 5 batches each = 30 jobs
+# Array index 0-29 maps to (layer_config, batch_idx):
 #   layer_config_idx = task_id / 5
 #   batch_idx = task_id % 5
 
 NUM_BATCHES=5
-LAYER_OPTIONS=(22 25 26 100)
+LAYER_OPTIONS=(21 22 23 24 25 26)
 
 LAYER_CONFIG_IDX=$((SLURM_ARRAY_TASK_ID / NUM_BATCHES))
 BATCH_IDX=$((SLURM_ARRAY_TASK_ID % NUM_BATCHES))
 LAYER_IDX=${LAYER_OPTIONS[$LAYER_CONFIG_IDX]}
 
-RESULT_DIR="./results_baseline"
+MODEL="Qwen/Qwen2.5-Math-1.5B"
+MODEL_SHORT="1.5B"
+RESULT_DIR="./results_mcmc_${MODEL_SHORT}"
 mkdir -p "$RESULT_DIR"
 
-echo ">>> BASELINE CONFIGURATION (100 Questions/Layer) <<<"
+echo ">>> MCMC Configuration (${MODEL_SHORT}) <<<"
 echo "Running in: $(pwd)"
 echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
-echo "Layer Config Index: $LAYER_CONFIG_IDX"
+echo "Model: $MODEL"
 echo "Layer Index: $LAYER_IDX"
 echo "Batch Index: $BATCH_IDX"
 
 # Check if output file already exists - skip if so
-OUTPUT_FILE="$RESULT_DIR/Qwen_Qwen2.5-Math-1.5B/baseline_results_layer${LAYER_IDX}_temp0.5_batch${BATCH_IDX}.csv"
+OUTPUT_FILE="$RESULT_DIR/Qwen_Qwen2.5-Math-${MODEL_SHORT}/truncated_ps_results_layer${LAYER_IDX}_steps10_temp0.5_batch${BATCH_IDX}.csv"
 if [ -f "$OUTPUT_FILE" ]; then
     echo ">>> OUTPUT FILE ALREADY EXISTS: $OUTPUT_FILE"
     echo ">>> SKIPPING THIS JOB"
@@ -72,13 +73,16 @@ echo "Installing dependencies..."
 pip install --upgrade pip
 pip install --no-cache-dir torch transformers pandas tqdm accelerate datasets huggingface_hub
 
-echo "Running BASELINE script with layer_idx=$LAYER_IDX, batch_idx=$BATCH_IDX..."
-python run_baseline_math.py \
+echo "Running MCMC script..."
+python run_trunc_math.py \
+    --model="$MODEL" \
     --layer_idx=$LAYER_IDX \
-    --model="Qwen/Qwen2.5-Math-1.5B" \
-    --temperature=0.5 \
     --batch_idx=$BATCH_IDX \
-    --save_str="results_baseline"
+    --mcmc_steps=10 \
+    --max_new_tokens=1024 \
+    --temperature=0.5 \
+    --save_str="$RESULT_DIR"
 
 echo ">>> JOB COMPLETE <<<"
+
 

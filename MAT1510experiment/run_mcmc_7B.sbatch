@@ -1,17 +1,17 @@
 #!/bin/bash --login
-#SBATCH --job-name=mcmc_1.5B
+#SBATCH --job-name=mcmc_7B
 #SBATCH --partition=gpunodes
 #SBATCH -t 0-23:59
 #SBATCH -c 4
-#SBATCH --mem=24GB
-#SBATCH --gres=gpu:rtx_a2000:1
+#SBATCH --mem=48GB
+#SBATCH --gres=gpu:rtx_4090:1
 #SBATCH --array=0-29
-#SBATCH --output=slurm_jobs/mcmc_1.5B_%A_%a.out
-#SBATCH --error=slurm_jobs/mcmc_1.5B_%A_%a.err
-#SBATCH --mail-user=khashayar1924@gmail.com
+#SBATCH --output=slurm_jobs/mcmc_7B_%A_%a.out
+#SBATCH --error=slurm_jobs/mcmc_7B_%A_%a.err
+#SBATCH --mail-user=email@email.com
 #SBATCH --mail-type=ALL
 
-# Qwen2.5-Math-1.5B: Layers 21-26, 5 batches each = 30 jobs
+# Qwen2.5-Math-7B: Layers 21-26, 5 batches each = 30 jobs
 # Array index 0-29 maps to (layer_config, batch_idx):
 #   layer_config_idx = task_id / 5
 #   batch_idx = task_id % 5
@@ -23,8 +23,8 @@ LAYER_CONFIG_IDX=$((SLURM_ARRAY_TASK_ID / NUM_BATCHES))
 BATCH_IDX=$((SLURM_ARRAY_TASK_ID % NUM_BATCHES))
 LAYER_IDX=${LAYER_OPTIONS[$LAYER_CONFIG_IDX]}
 
-MODEL="Qwen/Qwen2.5-Math-1.5B"
-MODEL_SHORT="1.5B"
+MODEL="Qwen/Qwen2.5-Math-7B"
+MODEL_SHORT="7B"
 RESULT_DIR="./results_mcmc_${MODEL_SHORT}"
 mkdir -p "$RESULT_DIR"
 
