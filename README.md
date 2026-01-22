@@ -1,6 +1,6 @@
 # MAT1510H Project: Sampling + LogitLens Experiments
 
-This repo contains my MAT1510H project work built around the "Reasoning with Sampling"
+This repo contains the MAT1510H project work built around the "Reasoning with Sampling"
 paper. The main work lives in `MAT1510experiment/` and `logitlens/`. The
 `reasoning-with-sampling/` folder is the original paper's codebase for reference.
 
